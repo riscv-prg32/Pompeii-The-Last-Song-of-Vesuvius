@@ -1,0 +1,54 @@
+{
+  "abi": "prg32-colophon-1.0",
+  "title": "Pompeii: The Last Song of Vesuvius",
+  "subtitle": "Save the people. The mountain cannot be saved.",
+  "version": "1.0.0",
+  "release_date": "2026-11-11",
+  "developer": {
+    "name": "UniParthenope PRG32",
+    "url": "https://github.com/riscv-prg32/Pompeii-The-Last-Song-of-Vesuvius"
+  },
+  "authors": [
+    {
+      "role": "concept, story, project lead",
+      "name": "Raffaele Montella - UniParthenope"
+    },
+    {
+      "role": "game design, programming, pixel art, music",
+      "name": "AI coding agents (Claude Code by Anthropic, and others) under the project lead's direction"
+    }
+  ],
+  "license": "MIT",
+  "copyright": "Copyright 2026 PRG32",
+  "acknowledgements": [
+    "Pompeii and the eruption of Vesuvius in AD 79 are history; Livia, the citizens and the Sibylline society are fiction.",
+    "The tibia is an attested Roman double pipe; its magic is invented.",
+    "All art, text and music are original: procedural tiles, 8x8 sprites, a 3x5 font and melodies written for this game.",
+    "Edward Bulwer-Lytton's 1834 novel The Last Days of Pompeii is public domain; this game does not adapt it.",
+    "PRG32 framework and its portable cartridge ABI."
+  ],
+  "content_notice": "Mild fantasy combat with a sword against looters; a historical natural disaster is depicted without casualties.",
+  "controls": [
+    {
+      "input": "D-pad",
+      "action": "Walk; face a citizen, rubble or enemy"
+    },
+    {
+      "input": "A",
+      "action": "Strike: looters and fallen rubble"
+    },
+    {
+      "input": "B",
+      "action": "Rescue the citizen you face; play the tibia on the altar; cancel the tibia"
+    },
+    {
+      "input": "UP, LEFT, RIGHT",
+      "action": "The tibia call at the Sibyl's altar"
+    },
+    {
+      "input": "START",
+      "action": "Start; retry after defeat; new game after the ending"
+    }
+  ],
+  "start_prompt": "Press START to enter Pompeii"
+}
