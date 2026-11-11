@@ -47,8 +47,12 @@ import autoplay  # noqa: E402
 PRG32 = Path(os.environ.get("PRG32_REPO", ROOT.parent / "PRG32")).resolve()
 CONSOLE_PORT, AUDIO_PORT, QMP_PORT = 4542, 4541, 4543
 RATE = 22050
-# PRG32 v1.8 QEMU UART keyboard: w/a/s/d, z (or h) = A, x (or j) = B, Enter = START.
-KEYS = {"up": b"w", "down": b"s", "left": b"a", "right": b"d", "a": b"z", "b": b"x", "start": b"\r"}
+# PRG32 v1.8 QEMU UART keyboard: w/a/s/d, z (or h) = A, x (or j) = B, k = C,
+# q = L, e = R, Enter = START. Each byte holds its button for 120 ms and a
+# repeat extends the hold, so combinations and held directions work.
+KEYS = {"up": b"w", "down": b"s", "left": b"a", "right": b"d", "a": b"z", "b": b"x", "c": b"k",
+        "l": b"q", "r": b"e", "start": b"\r"}
+MOVES = {"up", "down", "left", "right"}
 VIDEO_SECONDS = 60.0
 
 
@@ -167,7 +171,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "build/qemu-smoke")
     ap.add_argument("--video", action="store_true", help="record a 60 s MP4 with audio")
     ap.add_argument("--fps", type=int, default=15)
-    ap.add_argument("--timeout", type=float, default=240.0)
+    ap.add_argument("--timeout", type=float, default=600.0)
     ap.add_argument("--tap-gap", type=float, default=None,
                     help="seconds between taps (the firmware holds a key 120 ms); default 0.22, 0.30 with --video")
     ap.add_argument("--title-seconds", type=float, default=5.0, help="time on the title screen in the video")
@@ -227,13 +231,13 @@ def main() -> int:
             def grab(path: Path) -> None:
                 rgb565_image(qmp.read(fb_addr[0], 320 * 240 * 2, tmp / "fb.raw", pause=True)).save(path)
 
-            # Wait for the cartridge: the title screen leaves mode 0 with the hero at (9,9).
+            # Wait for the cartridge: the title screen (mode 0) of a fresh game.
             t0 = time.monotonic()
             while True:
                 if time.monotonic() - t0 > 60:
                     raise SystemExit("cartridge did not start within 60 s; see console.log")
                 s = state()
-                if s.x == 9 and s.y == 9 and s.hp == 6 and not s.mode:
+                if s.mode == autoplay.MODE_TITLE and s.hp == 6 and s.ent_count == 5 and s.ticks > 10 and s.room == 0:
                     break
                 # This firmware may boot into PRG32 SETUP; B ("BACK") leaves it
                 # and autoloads the only stored cartridge.
@@ -273,28 +277,40 @@ def main() -> int:
                 s = state()
                 if s.mode and ticks0 is None:
                     ticks0, tick_t0 = s.ticks, time.monotonic()
-                milestone = (s.room, bin(s.crystals).count("1"), s.notes >= 3, s.won, s.dead)
+                saved = bin(s.rescued).count("1")
+                won, dead = s.mode == autoplay.MODE_WON, s.mode == autoplay.MODE_DEAD
+                milestone = (s.room, saved, s.song_known, won, dead)
                 if milestone not in seen:
                     seen.add(milestone)
                     report["events"].append({"t": round(time.monotonic() - play_t0, 2), "state": s.summary()})
                     print(f"[{time.monotonic() - play_t0:6.1f}s] {s.summary()}", flush=True)
-                    if s.mode and not s.won:
-                        grab(args.out / f"room{s.room}_saved{bin(s.crystals).count('1')}.png")
-                if s.won:
+                    if s.mode and not won:
+                        grab(args.out / f"room{s.room}_saved{saved}.png")
+                if won:
                     if won_at is None:
                         won_at = time.monotonic()
                         report["ticks_per_second"] = round((s.ticks - ticks0) / (won_at - tick_t0), 1) if ticks0 is not None else None
-                    if s.eruption_frames >= 240:
+                    if s.finished():
                         break
                 key = autoplay.decide(s)
-                if key in KEYS:
-                    console.sendall(KEYS[key])
+                parts = [k for k in key.split("+") if k in KEYS]
+                if parts and all(k in MOVES for k in parts):
+                    # Hold the direction: repeat it inside the 120 ms hold window.
+                    for _ in range(3):
+                        console.sendall(b"".join(KEYS[k] for k in parts))
+                        time.sleep(0.07)
                     taps += 1
-                time.sleep(tap_gap)
+                elif parts:
+                    console.sendall(b"".join(KEYS[k] for k in parts))
+                    taps += 1
+                    time.sleep(tap_gap)
+                else:
+                    time.sleep(0.1)
             final = state()
-            report.update(taps=taps, final=final.summary(), won=bool(final.won),
+            final_won = final.mode == autoplay.MODE_WON
+            report.update(taps=taps, final=final.summary(), won=final_won,
                           play_seconds=round((won_at or time.monotonic()) - play_t0, 1))
-            if final.won:
+            if final_won:
                 time.sleep(1.0)
                 grab(args.out / "ending.png")
             if args.video:

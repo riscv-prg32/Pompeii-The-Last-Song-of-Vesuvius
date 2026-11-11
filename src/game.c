@@ -1,180 +1,506 @@
-/* Pompeii: The Last Song of Vesuvius. Original historical-fantasy adventure. */
-#if defined(__GNUC__)
-#pragma GCC diagnostic ignored "-Wmisleading-indentation"
-#endif
+/* Pompeii: The Last Song of Vesuvius: an original 3D historical-fantasy
+ * action-adventure. Deterministic game logic; rendering lives in render.c. */
 #include "game.h"
-#include "sprites.h"
+#include "r3d.h"
 #include <string.h>
-#define TW 20
-const uint32_t arelia_palette[16]={0x181824,0x3e3334,0x607445,0x9b8c62,0x476878,0x5c6542,0xe3c58e,0x665a52,0xaba08a,0xb04437,0x986d4a,0x619b91,0xe8b650,0x9c687b,0xe7d7b2,0xffffff};
-#define TH 12
-/* 0 street,1 Roman masonry,2 aqueduct,3 bronze key,4 locked arch,5 Sibyl altar,6 evacuation exit,7 rubble,8 citizen token,9 bridge */
-/* Fixed-size arrays, not pointer tables: portable PRG32 cartridges carry no
- * relocations, so .rodata must hold no absolute addresses. */
-static const char maps[ARELIA_ROOMS][TH][TW+1]={
- {"11111111101111111111","10000000000000000001","10007000080007000001","10000000000000000001","10000000002000000001","10000000002000003001","10000000002000000001","10000000002000000001","10000000009000000001","10000000000000000001","10000000000000000001","11111111101111111111"},
- {"11111111101111111111","10000000000000000001","10000000000000000001","10000000000000000001","10000000111100000001","10000000100400000001","10003000100100000001","10000000100100000001","10000000100100000001","10000000000800000001","10000000000000000001","11111111101111111111"},
- {"11111111101111111111","10000000000000000001","10000000000000000001","10000000000000000001","10000022222000000001","10000020002000000001","10000020502000800001","10000020092000000001","10000029992000000001","10000000000000000001","10000000000000000001","11111111101111111111"},
- {"11111111101111111111","10000000000000000001","10000000000000000001","10000000000000000001","10000111111111000001","10000100000001000001","10000100060001080001","10000100000001000001","10000111141111000001","10000000000000000001","10000000000000000001","11111111101111111111"}
-};
-/* Rubble beside each district's citizen (districts 1-3); never on the citizen. */
-static const uint8_t hazard_x[ARELIA_ROOMS]={0,10,13,14},hazard_y[ARELIA_ROOMS]={0,9,6,6};
-static void load_room(AreliaGame *g, unsigned room){int y,x;g->room=(uint8_t)room;
-for(y=0;y<TH;y++)for(x=0;x<TW;x++){uint8_t t=(uint8_t)(maps[room][y][x]-'0');
-if(t==4&&g->gate_open[room])t=0;
-if(t==8&&(g->crystals&(1u<<room)))t=0;
-if(t==3&&g->collected_keys[room])t=0;
-g->tiles[y][x]=t;}if(room>0&&!g->cleared_hazards[room])g->tiles[hazard_y[room]][hazard_x[room]]=7;memset(g->enemies,0,sizeof(g->enemies));
-if(room==0){g->enemies[0]=(AreliaEnemy){5,4,2,1};g->enemies[1]=(AreliaEnemy){15,8,2,1};}if(room==1){g->enemies[0]=(AreliaEnemy){4,4,2,1};g->enemies[1]=(AreliaEnemy){15,6,3,1};}if(room==2){g->enemies[0]=(AreliaEnemy){15,3,3,1};}if(room==3){g->enemies[0]=(AreliaEnemy){10,3,4,1};}for(x=0;x<ARELIA_ENEMIES;x++)if(g->defeated_enemies[room]&(1u<<x))g->enemies[x].active=0;
-g->visited|=1u<<room;}
-void game_init(AreliaGame*g){memset(g,0,sizeof(*g));g->x=9;g->y=9;g->hp=6;g->mode=0;load_room(g,0);}
-static int traversable(AreliaGame*g,int x,int y){uint8_t t;
-if(x<0||y<0||x>=TW||y>=TH)return 0;t=g->tiles[y][x];
-if(t==1||t==2||t==7||t==8)return 0; /* citizens stand their ground: face them, press B */
-if(t==4){if(!g->keys)return 0;g->keys--;g->gate_open[g->room]=1;g->sound_event=3;g->tiles[y][x]=0;g->dialogue=7;g->dialogue_timer=120;}return 1;}
-static void pickup(AreliaGame*g){uint8_t*t=&g->tiles[g->y][g->x];
-if(*t==3){g->keys++;g->collected_keys[g->room]=1;g->sound_event=1;*t=0;}/* Citizens require ACTION while facing them; walking over a citizen does not collect them. */if(*t==6&&g->crystals==((1u<<ARELIA_ROOMS)-1u) && g->notes>=3){g->won=1;g->eruption_frames=0;g->dialogue=8;g->dialogue_timer=255;g->sound_event=6;}}
-static void move(AreliaGame*g,int dx,int dy){int nx=(int)g->x+dx,ny=(int)g->y+dy;
-if(ny==0&&g->y==1&&g->x==9&&dy<0&&g->room<3){load_room(g,g->room+1);g->x=9;g->y=10;g->dialogue=(uint8_t)(8+g->room);g->dialogue_timer=125;return;}if(ny==11&&g->y==10&&g->x==9&&dy>0&&g->room>0){load_room(g,g->room-1);g->x=9;g->y=1;return;}{int i;for(i=0;i<ARELIA_ENEMIES;i++)if(g->enemies[i].active&&g->enemies[i].x==nx&&g->enemies[i].y==ny)return;} /* enemies block: turn to face them */
-if(traversable(g,nx,ny)){g->x=(uint8_t)nx;g->y=(uint8_t)ny;pickup(g);}}
-void game_step(AreliaGame*g,unsigned buttons){int i,dx=0,dy=0;
-if((buttons&ARELIA_INPUT_SELECT)&&!(g->previous_buttons&ARELIA_INPUT_SELECT)){if(g->dead||g->won){game_init(g);return;}if(!g->mode){g->mode=1;g->dialogue=1;g->dialogue_timer=115;}}if(g->won){if(g->eruption_frames<240)g->eruption_frames++;g->previous_buttons=(uint8_t)buttons;return;}if(!g->mode||g->dead){g->previous_buttons=(uint8_t)buttons;return;}g->ticks++;
- if(g->dialogue_timer)g->dialogue_timer--;
- if(!g->dialogue_timer)g->dialogue=0;
- /* A three-phrase tibia call: UP, LEFT, RIGHT. One note per fresh press. */
- {unsigned fresh=buttons & ~(unsigned)g->previous_buttons;
-  if(g->melody_active){
-   static const unsigned sequence[3]={ARELIA_INPUT_UP,ARELIA_INPUT_LEFT,ARELIA_INPUT_RIGHT};
-   if(fresh & (ARELIA_INPUT_UP|ARELIA_INPUT_LEFT|ARELIA_INPUT_RIGHT)){
-    if(fresh & sequence[g->melody_progress]){g->melody_progress++;g->sound_event=3;
-      if(g->melody_progress==3){g->notes=3;g->melody_active=0;g->dialogue=12;g->dialogue_timer=140;}}
-    else {g->melody_progress=0;g->sound_event=4;}
-   }
-   if(fresh & ARELIA_INPUT_ACTION)g->melody_active=0;
-   g->previous_buttons=(uint8_t)buttons;
-   return;
-  }
-  if(fresh & ARELIA_INPUT_ACTION){
-   if(g->tiles[g->y][g->x]==5){g->melody_active=1;g->melody_progress=0;g->dialogue=6;g->dialogue_timer=170;}
-   else {int dx=(g->face==3)-(g->face==2),dy=(g->face==1)-(g->face==0);int nx=g->x+dx,ny=g->y+dy;
-    if(nx>=0&&nx<TW&&ny>=0&&ny<TH&&g->tiles[ny][nx]==8){if(g->room>0&&!g->cleared_hazards[g->room]){g->dialogue=13;g->dialogue_timer=120;}else{g->tiles[ny][nx]=0;g->crystals|=1u<<g->room;g->rescued_count++;g->dialogue=2+g->room;g->dialogue_timer=210;g->sound_event=5;}}
-   }
-  }
-  g->previous_buttons=(uint8_t)buttons;
- }
- if(g->invuln)g->invuln--;
- if(g->attack)g->attack--;
-if(g->move_cooldown)g->move_cooldown--;
-if(buttons&ARELIA_INPUT_UP){dy=-1;g->face=0;}else if(buttons&ARELIA_INPUT_DOWN){dy=1;g->face=1;}else if(buttons&ARELIA_INPUT_LEFT){dx=-1;g->face=2;}else if(buttons&ARELIA_INPUT_RIGHT){dx=1;g->face=3;}if((dx||dy)&&!g->move_cooldown){move(g,dx,dy);g->move_cooldown=5;}if((buttons&ARELIA_INPUT_SWORD)&&!g->attack){int sx=g->x+(g->face==3)-(g->face==2),sy=g->y+(g->face==1)-(g->face==0);g->attack=10;g->sound_event=2;if(g->room>0&&sx>=0&&sx<TW&&sy>=0&&sy<TH&&g->tiles[sy][sx]==7){g->tiles[sy][sx]=0;g->cleared_hazards[g->room]=1;g->dialogue=14;g->dialogue_timer=120;g->sound_event=3;}
-for(i=0;i<ARELIA_ENEMIES;i++){AreliaEnemy*e=&g->enemies[i];
-if(e->active&&e->x==sx&&e->y==sy){if(--e->hp<=0){e->active=0;g->defeated_enemies[g->room]|=(uint8_t)(1u<<i);g->sound_event=4;}}}}if(++g->enemy_cooldown>=22){g->enemy_cooldown=0;
-for(i=0;i<ARELIA_ENEMIES;i++){AreliaEnemy*e=&g->enemies[i];int nx,ny;
-if(!e->active)continue;nx=e->x;ny=e->y;
-if(g->x>nx)nx++;else if(g->x<nx)nx--;else if(g->y>ny)ny++;else if(g->y<ny)ny--;
-if(nx==g->x&&ny==g->y){if(!g->invuln){g->hp--;g->sound_event=4;g->invuln=35;
-if(!g->hp)g->dead=1;}}else if(nx>=0&&ny>=0&&nx<TW&&ny<TH&&g->tiles[ny][nx]==0){e->x=(int8_t)nx;e->y=(int8_t)ny;}}}pickup(g);}
-static void rect(uint8_t*fb,int x,int y,int w,int h,uint8_t c){int i,j;
-for(j=y;j<y+h;j++)if((unsigned)j<ARELIA_HEIGHT)for(i=x;i<x+w;i++)if((unsigned)i<ARELIA_WIDTH)fb[j*ARELIA_WIDTH+i]=c;}
 
-/* Tiny built-in 3x5 uppercase font: no external assets or font dependencies. */
-static const uint8_t glyphs[59][5]={{0,0,0,0,0},{2,2,2,0,2},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,7,0,0},{0,0,0,0,2},{1,1,2,4,4},{7,5,5,5,7},{2,6,2,2,7},{6,1,7,4,7},{6,1,3,1,6},{5,5,7,1,1},{7,4,6,1,6},{3,4,7,5,7},{7,1,1,2,2},{7,5,7,5,7},{7,5,7,1,6},{0,2,0,2,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{2,5,7,5,5},{6,5,6,5,6},{3,4,4,4,3},{6,5,5,5,6},{7,4,6,4,7},{7,4,6,4,4},{3,4,5,5,3},{5,5,7,5,5},{7,2,2,2,7},{1,1,1,5,2},{5,5,6,5,5},{4,4,4,4,7},{5,7,7,5,5},{5,7,7,7,5},{2,5,5,5,2},{6,5,6,4,4},{2,5,5,3,1},{6,5,6,5,5},{3,4,2,1,6},{7,2,2,2,2},{5,5,5,5,7},{5,5,5,5,2},{5,5,7,7,5},{5,5,2,5,5},{5,5,2,2,2},{7,1,2,4,7}};
-static void print3(uint8_t*fb,int x,int y,const char*str,uint8_t c){int i,j,k;while(*str){unsigned a=(unsigned char)*str++;
-if(a>=97&&a<=122)a-=32;
-if(a<32||a>90)a=32;
-for(j=0;j<5;j++)for(k=0;k<3;k++)if(glyphs[a-32][j]&(4>>k))for(i=0;i<2;i++)rect(fb,x+k*2,y+j*2+i,2,1,c);x+=8;}}
-static const char room_names[ARELIA_ROOMS][14]={"FORUM","PAINTED VILLA","WATERWORKS","SEA ROAD"};
-static const char messages[15][33]={"","LIVIA: FIND THE LOST TIBIA","MARCUS: TAKE THE SOUTH ROAD","FLAVIA: THE WALLS ARE SHAKING","FELIX: THE CISTERN IS CRACKED","TULLIA: I CAN SEE THE SEA","TIBIA: UP LEFT RIGHT","THE STONE ARCH OPENS","THE PEOPLE ESCAPE. POMPEII FALLS","THE PAINTED VILLA","THE WATERWORKS","THE ROAD TO THE SEA","THE SIBYL HEARS. RUN TO THE SEA","CLEAR THE FALLEN STONES","THE PASSAGE IS SAFE"};
-/* District-specific procedural architecture; no external tile textures. */
-static void architecture(uint8_t*fb,int x,int y,int room,uint32_t ticks){
- int px=x*16,py=y*16,seed=(x*13+y*7+room*19);
- uint8_t stone=(room==1)?14:(room==2)?7:(room==3)?8:6;
- uint8_t mortar=(room==1)?9:(room==2)?1:7;
- rect(fb,px,py,16,16,stone);
- if(room==0){ /* Forum: travertine colonnade and red shop awnings */
-  rect(fb,px,py+1,16,2,8);rect(fb,px+2,py+3,3,11,14);
-  rect(fb,px+11,py+3,3,11,14);rect(fb,px+1,py+13,14,2,7);
-  if((x+y)%3==0)rect(fb,px+5,py+4,6,3,9);
- }else if(room==1){ /* Villa: painted plaster, fresco bands, mosaic dado */
-  rect(fb,px,py,16,3,9);rect(fb,px,py+12,16,4,7);
-  rect(fb,px+3,py+4,10,7,13);rect(fb,px+5,py+5,6,5,6);
-  rect(fb,px+7,py+4,2,7,2);
-  if(seed%3==0)rect(fb,px+1,py+13,3,2,15);
- }else if(room==2){ /* Cistern: damp basalt blocks and water seams */
-  rect(fb,px,py+7,16,1,1);rect(fb,px+8,py,1,7,1);
-  rect(fb,px+3,py+11,10,2,4);rect(fb,px+4+(ticks/16%4),py+12,3,1,11);
- }else{ /* Sea road: ash-dusted masonry, coastal light */
-  rect(fb,px,py+7,16,1,7);rect(fb,px+7,py,1,7,7);
-  rect(fb,px+1,py+1,14,2,14);rect(fb,px+2,py+11,5,2,6);
+#define U(x) ((int32_t)((x) * 256))        /* world units -> Q8 (compile-time constants only) */
+#define PLAYER_R 60
+#define WALK_SPEED 18
+#define FOCUS_SPEED 15
+#define ROLL_SPEED 40
+#define LOOTER_SPEED 9
+#define REACH 330                           /* strike reach, Q8 */
+#define CAM_DIST 820
+#define CAM_PITCH 36                        /* about 12.7 degrees down */
+#define AIM_HEIGHT 230
+#define VESUVIUS_YAW 860                    /* north-west of the city */
+
+static const uint8_t song[ARELIA_SONG_LEN] = {0, 1, 2, 0, 1, 2};   /* UP LEFT RIGHT UP LEFT RIGHT */
+
+enum { D_NONE, D_INTRO, D_RESCUE0, D_RESCUE1, D_RESCUE2, D_RESCUE3, D_TRAP0, D_TRAP1, D_TRAP2, D_TRAP3,
+       D_ALTAR, D_LEARNED, D_SEAL, D_SEAL_OPEN, D_LOCKED, D_KEY, D_DOOR, D_RUBBLE, D_CLEARED, D_NOT_ALL,
+       D_ECHO, D_ALTAR_DONE, D_SEAL_HINT, D_COUNT };
+static const char dialogues[D_COUNT][72] = {
+ "",
+ "LIVIA: THE GROUND WILL NOT STOP|SHAKING. I MUST GET PEOPLE OUT.",
+ "MARCUS: THE SOUTH ROAD IS JAMMED.|I WILL TAKE THE HARBOUR PATH!",
+ "FLAVIA: THE FRESCOES ARE CRACKING.|THANK YOU. I CAN RUN NOW.",
+ "FELIX: THE CISTERN IS BOILING!|THE SIBYL'S ALTAR... IT HUMS.",
+ "TULLIA: I CAN SEE THE BOATS!|COME WITH US, LIVIA!",
+ "",
+ "FLAVIA: THE DOORWAY FELL IN!|BREAK THE STONES WITH A!",
+ "FELIX: I AM WALLED IN!|BREAK THE STONES WITH A!",
+ "TULLIA: THE TOMB COLLAPSED!|BREAK THE STONES WITH A!",
+ "THE ALTAR READS: PLAY TO THE SEA|UP LEFT RIGHT UP LEFT RIGHT",
+ "YOU LEARNED THE CALL OF THE SIBYL.|RAISE THE TIBIA WITH C.",
+ "A SIBYL'S SEAL BLOCKS THE ROAD.|IT HUMS, WAITING FOR A SONG.",
+ "THE STONE ANSWERS THE TIBIA|AND SINKS INTO THE ROAD.",
+ "LOCKED. A BRONZE KEY|WOULD TURN THIS LOCK.",
+ "YOU FOUND A BRONZE KEY!",
+ "THE BRONZE KEY TURNS.",
+ "FALLEN MASONRY.|STRIKE IT WITH A.",
+ "THE PASSAGE IS CLEAR.",
+ "NOT YET. SOMEONE IS STILL|IN THE CITY.",
+ "THE CALL ECHOES OVER THE ASH.",
+ "THE ALTAR IS SILENT NOW.",
+ "THE SEAL HUMS. RAISE THE TIBIA|WITH C, PLAY THE SIBYL'S CALL."
+};
+
+const char *game_dialogue_text(unsigned id){return id < D_COUNT ? dialogues[id] : dialogues[0];}
+
+static unsigned text_len(unsigned id){unsigned n = 0; const char *s = game_dialogue_text(id); while(s[n]) n++; return n;}
+
+static void say(AreliaGame *g, unsigned id){g->dialogue = (uint8_t)id; g->dialogue_t = 0;}
+
+static int32_t ent_radius(const AreliaEntity *e){
+ switch(e->type){
+  case E_LOOTER: return 70; case E_CITIZEN: return 62; case E_RUBBLE: return 110;
+  case E_ALTAR: return 112; default: return 0;
  }
- (void)mortar;
 }
-static void tile(uint8_t*fb,int x,int y,uint8_t t,int room,uint32_t ticks){
- int px=x*16,py=y*16;static const uint8_t colors[]={3,7,4,12,10,14,15,5,13,6};
- rect(fb,px,py,16,16,colors[t]);
- if(t==0){
-  if(room==0){rect(fb,px,py+8,16,1,8);rect(fb,px+8,py,1,8,8);rect(fb,px+3,py+12,2,1,10);}
-  if(room==1){rect(fb,px,py+8,16,1,7);rect(fb,px+8,py,1,16,7);rect(fb,px+4,py+4,2,2,13);rect(fb,px+12,py+12,2,2,13);}
-  if(room==2){rect(fb,px,py+8,16,1,4);rect(fb,px+8,py,1,8,4);rect(fb,px+3+(ticks/12%3),py+13,5,1,11);}
-  if(room==3){rect(fb,px,py+8,16,1,8);rect(fb,px+8,py,1,8,8);if((x*7+y)%4==0)rect(fb,px+3,py+4,5,2,14);}
+
+static void load_room(AreliaGame *g, unsigned room, int from_north){
+ int i;
+ g->room = (uint8_t)room;
+ memset(g->ent, 0, sizeof(g->ent));
+ g->ent_count = 0;
+ for(i = 0; i < WORLD_MAX_ENT; i++){
+  const WorldSpawn *s = &world_spawns[room][i];
+  AreliaEntity *e = &g->ent[i];
+  if(s->type == E_NONE) break;
+  g->ent_count = (uint8_t)(i + 1);
+  e->type = s->type; e->param = s->param;
+  e->x = (int16_t)(s->x2 * 128); e->z = (int16_t)(s->z2 * 128);
+  e->alive = !(g->gone[room] & (1u << i));
+  e->hp = s->type == E_LOOTER ? s->param : s->type == E_RUBBLE ? 2 : 1;
+  e->yaw = 512; e->state = AI_IDLE;
  }
- if(t==1)architecture(fb,x,y,room,ticks);
- if(t==2){rect(fb,px+2,py+3,12,11,7);rect(fb,px+4,py+6,8,8,4);rect(fb,px+5,py+10+(ticks/12%2),6,2,11);}
- if(t==3){rect(fb,px+6,py+4,4,8,15);rect(fb,px+4,py+3,6,3,12);}
- if(t==4){rect(fb,px+2,py+1,12,14,7);rect(fb,px+4,py+3,8,12,1);rect(fb,px+7,py+5,2,9,12);}
- if(t==5){rect(fb,px+2,py+3,12,11,8);rect(fb,px+4,py+1,8,3,14);rect(fb,px+5,py+5,2,7,12);rect(fb,px+9,py+5,2,7,12);}
- if(t==6){rect(fb,px+2,py+2,12,13,8);rect(fb,px+4,py+4,8,11,1);rect(fb,px+7,py+1,2,4,12);}
- if(t==7){rect(fb,px+1,py+7,10,7,7);rect(fb,px+9,py+4,6,9,8);}
- if(t==8){arelia_draw_sprite8(fb,px+4,py+4,arelia_hero_sprite);rect(fb,px+2,py+2,12,2,12);}
- if(t==9){rect(fb,px,py+8,16,6,10);rect(fb,px,py+7,16,2,14);}
+ g->px = U(7.5);
+ g->pz = from_north ? U(1.7) : U(18.3);
+ g->pyaw = from_north ? 512 : 0;
+ g->cam_yaw = g->pyaw;
+ g->focus = 0; g->action = ACT_NONE; g->action_t = 0; g->note_count = 0;
+ g->banner_t = 100; g->room_ticks = 0; g->lapilli_n = 0;
+ g->palette_phase = (uint8_t)room;
 }
-static void eruption_overlay(uint8_t*fb,uint32_t ticks,uint16_t finale){
- int x,y,phase=(int)(ticks/380);
- if(phase>4)phase=4;
- if(finale){phase=2+(int)(finale/55);if(phase>6)phase=6;}
- /* A mountain silhouette, plume, ash streaks, and ember rain. */
- for(y=0;y<12+phase*3;y++){
-  int half=5+y/2+phase*2;
-  if(half>55)half=55;
-  rect(fb,160-half,y,half*2,1,(uint8_t)(phase>=4?1:7));
- }
- for(x=0;x<320;x+=2){
-  int ridge=18-((x>160?x-160:160-x)/9);
-  if(ridge>0)rect(fb,x,26-ridge,2,ridge,1);
- }
- for(x=0;x<20+phase*9;x++){
-  int sx=(x*71+(int)(ticks/5))%320;
-  int sy=(x*37+(int)(ticks/9))%152;
-  rect(fb,sx,sy,phase>2?2:1,phase>4?3:1,(uint8_t)((x%4==0)?12:7));
- }
- if(phase>=3){rect(fb,0,0,320,2+phase,1);}
- if(finale>175){rect(fb,0,0,320,200,1);}
+
+void game_init(AreliaGame *g){
+ memset(g, 0, sizeof(*g));
+ g->hp = ARELIA_HP_MAX;
+ g->mode = MODE_TITLE;
+ g->cam_pitch = CAM_PITCH;
+ load_room(g, 0, 0);
+ g->banner_t = 0;
 }
-void game_render(const AreliaGame*g,uint8_t*fb){int x,y,i;rect(fb,0,0,320,200,0);
-for(y=0;y<12;y++)for(x=0;x<20;x++)tile(fb,x,y,g->tiles[y][x],g->room,g->ticks);
-for(i=0;i<ARELIA_ENEMIES;i++)if(g->enemies[i].active){const AreliaEnemy*e=&g->enemies[i];arelia_draw_sprite8(fb,e->x*16+4,e->y*16+4,arelia_enemy_sprite);}if(!(g->invuln&2)){arelia_draw_sprite8(fb,g->x*16+4,g->y*16+4,arelia_hero_sprite);
-if(g->attack){int ax=g->x*16+6,ay=g->y*16+6;
-if(g->face==0)ay-=12;
-if(g->face==1)ay+=12;
-if(g->face==2)ax-=12;
-if(g->face==3)ax+=12;rect(fb,ax,ay,4,10,15);}}if(g->mode&&!g->dead)eruption_overlay(fb,g->ticks,g->won?g->eruption_frames:0);rect(fb,0,192,320,8,1);
- if(g->mode){rect(fb,0,0,320,12,1);print3(fb,4,1,room_names[g->room],15);}
- if(g->dialogue && g->dialogue_timer){rect(fb,8,156,304,32,1);rect(fb,10,158,300,28,7);print3(fb,16,166,messages[g->dialogue],15);}
- if(g->melody_active){rect(fb,24,135,272,17,1);print3(fb,32,138,"UP LEFT RIGHT",12);}
-for(i=0;i<g->hp;i++)rect(fb,4+i*11,194,8,4,9);
-for(i=0;i<g->keys;i++)rect(fb,90+i*8,194,6,4,12);
-for(i=0;i<3;i++)rect(fb,180+i*12,194,9,4,i<g->notes?15:7);
-for(i=0;i<ARELIA_ROOMS;i++)rect(fb,250+i*12,194,9,4,(g->visited&(1u<<i))?14:7);
-if(!g->mode||g->dead||g->won){rect(fb,56,60,208,80,7);rect(fb,60,64,200,72,g->won?13:g->dead?9:6);if(g->won){if(g->eruption_frames<80){print3(fb,75,88,"VESUVIUS AWAKENS",15);print3(fb,75,107,"RUN TO THE COAST",15);}else if(g->eruption_frames<175){print3(fb,75,88,"THE CITY FALLS",15);print3(fb,75,107,"THE PEOPLE ESCAPE",15);}else{print3(fb,75,88,"THE LAST SONG",15);print3(fb,75,107,"SURVIVORS SAVED",15);}}else if(g->dead){print3(fb,80,90,"ASH AND SILENCE",15);print3(fb,80,110,"SELECT TO RETRY",15);}else{print3(fb,80,85,"POMPEII AD 79",1);print3(fb,80,105,"SELECT TO PLAY",1);}}}
-static unsigned append(char*out,unsigned n,unsigned cap,const char*s){while(*s&&n+1<cap)out[n++]=*s++;return n;}
-void game_status_text(const AreliaGame*g,char*out,unsigned cap){
- unsigned n=0,saved=0,i;char count[4];
- if(!out||!cap)return;
- for(i=0;i<ARELIA_ROOMS;i++)if(g->crystals&(1u<<i))saved++;
- count[0]=(char)('0'+saved);count[1]='/';count[2]=(char)('0'+ARELIA_ROOMS);count[3]=0;
- if(!g->mode)n=append(out,n,cap,"POMPEII AD 79");
- else if(g->won){n=append(out,n,cap,"SURVIVORS SAVED ");n=append(out,n,cap,count);}
- else if(g->dead)n=append(out,n,cap,"ASH AND SILENCE");
- else{n=append(out,n,cap,room_names[g->room<ARELIA_ROOMS?g->room:0]);n=append(out,n,cap," SAVED ");n=append(out,n,cap,count);
-  if(g->notes>=3)n=append(out,n,cap," TIBIA");}
- out[n]=0;
+
+/* ------------------------------------------------------------ collision */
+static int blocked(AreliaGame *g, int32_t x, int32_t z, int self){
+ int i;
+ if(world_solid(g->room, x - PLAYER_R, z - PLAYER_R) || world_solid(g->room, x + PLAYER_R, z - PLAYER_R) ||
+    world_solid(g->room, x - PLAYER_R, z + PLAYER_R) || world_solid(g->room, x + PLAYER_R, z + PLAYER_R)) return 1;
+ for(i = 0; i < g->ent_count; i++){
+  AreliaEntity *e = &g->ent[i];
+  int32_t r, dx, dz;
+  if(i == self || !e->alive) continue;
+  if(e->type == E_DOOR || e->type == E_SEAL){
+   /* Doors and the seal fill their cell until they open. */
+   int ex = e->x >> 8, ez = e->z >> 8;
+   if(e->state == 0 && ((x - PLAYER_R) >> 8) <= ex && ((x + PLAYER_R) >> 8) >= ex &&
+      ((z - PLAYER_R) >> 8) <= ez && ((z + PLAYER_R) >> 8) >= ez) return 2 + i;
+   continue;
+  }
+  r = ent_radius(e);
+  if(!r || e->state == AI_FALL || e->state == AI_LEAVE) continue;
+  dx = x - e->x; dz = z - e->z; r += self < 0 ? PLAYER_R : 60;
+  if(dx > -r && dx < r && dz > -r && dz < r && dx * dx + dz * dz < r * r) return 2 + i;
+ }
+ return 0;
+}
+
+static void open_door(AreliaGame *g, int i){
+ g->ent[i].state = 1; g->ent[i].timer = 30;
+ g->gone[g->room] |= (uint16_t)(1u << i);
+ g->sound_event = SND_DOOR;
+}
+
+/* Move the player by (dx, dz) with sliding collision; bumping a locked door
+ * with a key opens it. */
+static void player_move(AreliaGame *g, int32_t dx, int32_t dz){
+ int hit;
+ if(dx){hit = blocked(g, g->px + dx, g->pz, -1); if(!hit) g->px = (int16_t)(g->px + dx);
+  else if(hit >= 2 && g->ent[hit - 2].type == E_DOOR && g->keys){g->keys--; open_door(g, hit - 2); say(g, D_DOOR);}}
+ if(dz){hit = blocked(g, g->px, g->pz + dz, -1); if(!hit) g->pz = (int16_t)(g->pz + dz);
+  else if(hit >= 2 && g->ent[hit - 2].type == E_DOOR && g->keys){g->keys--; open_door(g, hit - 2); say(g, D_DOOR);}}
+}
+
+static void ent_move(AreliaGame *g, int i, int32_t dx, int32_t dz){
+ AreliaEntity *e = &g->ent[i];
+ int32_t nx = e->x + dx, nz = e->z + dz, pdx, pdz;
+ if(world_solid(g->room, nx - 60, nz - 60) || world_solid(g->room, nx + 60, nz - 60) ||
+    world_solid(g->room, nx - 60, nz + 60) || world_solid(g->room, nx + 60, nz + 60)) return;
+ pdx = nx - g->px; pdz = nz - g->pz;                    /* never step into Livia */
+ if(pdx * pdx + pdz * pdz < 120 * 120) return;
+ e->x = (int16_t)nx; e->z = (int16_t)nz;
+}
+
+/* ------------------------------------------------------------ helpers */
+static int32_t dist_to(const AreliaGame *g, const AreliaEntity *e){return r3d_dist(e->x - g->px, e->z - g->pz);}
+static int facing(const AreliaGame *g, const AreliaEntity *e, int tolerance){
+ return r3d_angle_diff(g->pyaw, r3d_angle(e->x - g->px, e->z - g->pz)) < tolerance &&
+        r3d_angle_diff(g->pyaw, r3d_angle(e->x - g->px, e->z - g->pz)) > -tolerance;
+}
+static int turn_toward(int from, int to, int rate){
+ int d = r3d_angle_diff(from, to);
+ if(d > rate) d = rate;
+ if(d < -rate) d = -rate;
+ return (from + d) & R3D_ANGLE_MASK;
+}
+
+static void hurt_player(AreliaGame *g, int from_yaw, int amount){
+ if(g->invuln || g->mode != MODE_PLAY) return;
+ g->hp = (uint8_t)(g->hp > amount ? g->hp - amount : 0);
+ g->invuln = 45; g->action = ACT_HURT; g->action_t = 10; g->sound_event = SND_HURT;
+ player_move(g, r3d_sin(from_yaw) * 90 >> 14, -r3d_cos(from_yaw) * 90 >> 14);
+ if(!g->hp){g->mode = MODE_DEAD; g->story = 0; g->focus = 0;}
+}
+
+static int nearest_target(const AreliaGame *g){
+ int i, best = -1; int32_t bd = 0x7fffffff;
+ for(i = 0; i < g->ent_count; i++){
+  const AreliaEntity *e = &g->ent[i]; int32_t d; int lim;
+  if(!e->alive || e->state == AI_FALL || e->state == AI_LEAVE) continue;
+  if(e->type == E_LOOTER) lim = U(6); else if(e->type == E_CITIZEN || e->type == E_RUBBLE || e->type == E_ALTAR || e->type == E_SEAL) lim = U(3.5); else continue;
+  d = dist_to(g, e) - (e->type == E_LOOTER ? U(2) : 0);   /* looters first */
+  if(dist_to(g, e) < lim && d < bd){bd = d; best = i;}
+ }
+ return best;
+}
+
+/* What B would do now (for the HUD prompt and the action). */
+enum { P_NONE, P_RESCUE, P_CHECK, P_TALK };
+static int context_target(const AreliaGame *g, int *kind){
+ int i;
+ for(i = 0; i < g->ent_count; i++){
+  const AreliaEntity *e = &g->ent[i]; int32_t d;
+  if(!e->alive || e->state == AI_LEAVE) continue;
+  d = dist_to(g, e);
+  switch(e->type){
+   case E_CITIZEN: if(d < U(1.35) && facing(g, e, 200)){*kind = P_RESCUE; return i;} break;
+   case E_ALTAR: if(d < U(1.5)){*kind = P_CHECK; return i;} break;
+   case E_SEAL: if(d < U(1.9) && e->state == 0){*kind = P_CHECK; return i;} break;
+   case E_DOOR: if(d < U(1.4) && e->state == 0){*kind = P_CHECK; return i;} break;
+   case E_RUBBLE: if(d < U(1.3) && facing(g, e, 200)){*kind = P_CHECK; return i;} break;
+   default: break;
+  }
+ }
+ *kind = P_NONE; return -1;
+}
+
+static void context_action(AreliaGame *g){
+ int kind, i = context_target(g, &kind);
+ AreliaEntity *e;
+ if(i < 0) return;
+ e = &g->ent[i];
+ switch(e->type){
+  case E_CITIZEN:
+   if(e->param < WORLD_MAX_ENT && g->ent[e->param].alive){say(g, D_TRAP0 + g->room); g->sound_event = SND_TALK; break;}
+   g->rescued |= (uint8_t)(1u << g->room);
+   g->gone[g->room] |= (uint16_t)(1u << i);
+   e->state = AI_LEAVE; e->timer = 50;
+   say(g, D_RESCUE0 + g->room); g->sound_event = SND_RESCUE; g->focus = 0;
+   break;
+  case E_ALTAR:
+   if(g->song_known){say(g, D_ALTAR_DONE); break;}
+   say(g, D_ALTAR); g->tibia_purpose = 1; break;      /* the tibia rises when the text closes */
+  case E_SEAL: say(g, g->song_known ? D_SEAL_HINT : D_SEAL); break;
+  case E_DOOR:
+   if(g->keys){g->keys--; open_door(g, i); say(g, D_DOOR);} else {say(g, D_LOCKED); g->sound_event = SND_LOCKED;}
+   break;
+  case E_RUBBLE: say(g, D_RUBBLE); break;
+  default: break;
+ }
+}
+
+static void strike_hits(AreliaGame *g){
+ int i;
+ for(i = 0; i < g->ent_count; i++){
+  AreliaEntity *e = &g->ent[i];
+  if(!e->alive || (e->type != E_LOOTER && e->type != E_RUBBLE) || e->state == AI_FALL) continue;
+  if(dist_to(g, e) > REACH + (e->type == E_RUBBLE ? 60 : 0) || !facing(g, e, 150)) continue;
+  e->flash = 8;
+  if(e->type == E_RUBBLE){
+   if(--e->hp == 0){e->alive = 0; g->gone[g->room] |= (uint16_t)(1u << i); g->sound_event = SND_BREAK; say(g, D_CLEARED);}
+   else g->sound_event = SND_HIT;
+   continue;
+  }
+  g->sound_event = SND_HIT;
+  e->state = AI_STAGGER; e->timer = 14; e->yaw = (int16_t)((g->pyaw + 512) & R3D_ANGLE_MASK);
+  if(--e->hp == 0){e->state = AI_FALL; e->timer = 30; g->gone[g->room] |= (uint16_t)(1u << i); if(g->focus == i + 1) g->focus = 0;}
+ }
+}
+
+static void spawn_life(AreliaGame *g, const AreliaEntity *from){
+ AreliaEntity *e;
+ if(g->ent_count >= WORLD_MAX_ENT) return;
+ e = &g->ent[g->ent_count++];
+ memset(e, 0, sizeof(*e));
+ e->type = E_LIFE; e->alive = 1; e->x = from->x; e->z = from->z;
+}
+
+static void update_entities(AreliaGame *g){
+ int i;
+ for(i = 0; i < g->ent_count; i++){
+  AreliaEntity *e = &g->ent[i];
+  int32_t d; int dir;
+  if(!e->alive) continue;
+  if(e->flash) e->flash--;
+  d = dist_to(g, e); dir = r3d_angle(g->px - e->x, g->pz - e->z);
+  switch(e->type){
+   case E_LOOTER:
+    switch(e->state){
+     case AI_IDLE: if(d < U(5.5)) e->state = AI_CHASE; break;
+     case AI_CHASE:
+      e->yaw = (int16_t)turn_toward(e->yaw, dir, 24);
+      if(d > U(9)){e->state = AI_IDLE; break;}
+      if(d < U(1.1)){e->state = AI_WINDUP; e->timer = 20; break;}
+      ent_move(g, i, r3d_sin(e->yaw) * LOOTER_SPEED >> 14, 0);
+      ent_move(g, i, 0, -r3d_cos(e->yaw) * LOOTER_SPEED >> 14);
+      break;
+     case AI_WINDUP: e->yaw = (int16_t)turn_toward(e->yaw, dir, 16); if(--e->timer <= 0){e->state = AI_SWING; e->timer = 8;} break;
+     case AI_SWING:
+      if(e->timer == 6 && d < U(1.45) && r3d_angle_diff(e->yaw, dir) < 110 && r3d_angle_diff(e->yaw, dir) > -110)
+       hurt_player(g, e->yaw, 1);
+      if(--e->timer <= 0){e->state = AI_RECOVER; e->timer = 26;}
+      break;
+     case AI_RECOVER: if(--e->timer <= 0) e->state = AI_CHASE; break;
+     case AI_STAGGER:
+      ent_move(g, i, r3d_sin(e->yaw + 512) * 6 >> 14, -r3d_cos(e->yaw + 512) * 6 >> 14);
+      if(--e->timer <= 0){e->state = AI_CHASE; e->yaw = (int16_t)dir;}
+      break;
+     case AI_FALL: if(--e->timer <= 0){e->alive = 0; if((i + g->room) & 1) spawn_life(g, e);} break;
+     default: break;
+    }
+    break;
+   case E_CITIZEN:
+    if(e->state == AI_LEAVE){if(--e->timer <= 0) e->alive = 0;}
+    else e->yaw = (int16_t)turn_toward(e->yaw, dir, 8);
+    break;
+   case E_KEY:
+    if(d < 110){e->alive = 0; g->keys++; g->gone[g->room] |= (uint16_t)(1u << i); g->sound_event = SND_KEY; say(g, D_KEY);}
+    break;
+   case E_LIFE:
+    if(d < 110){e->alive = 0; g->hp = (uint8_t)(g->hp + 2 > ARELIA_HP_MAX ? ARELIA_HP_MAX : g->hp + 2); g->sound_event = SND_KEY;}
+    break;
+   case E_DOOR: case E_SEAL:
+    if(e->state && --e->timer <= 0) e->alive = 0;
+    break;
+   default: break;
+  }
+ }
+}
+
+/* Lapilli rain on the Road to the Sea: a shadow grows, then a stone lands. */
+static void update_lapilli(AreliaGame *g){
+ int i;
+ if(g->room != 3) {g->lapilli_n = 0; return;}
+ if(g->room_ticks % 36 == 0 && g->lapilli_n < 4){
+  uint32_t h = g->ticks * 2654435761u;
+  g->lap_x[g->lapilli_n] = (int16_t)(g->px + (int32_t)((h >> 8) % 700) - 350);
+  g->lap_z[g->lapilli_n] = (int16_t)(g->pz + (int32_t)((h >> 20) % 700) - 350);
+  g->lap_t[g->lapilli_n] = 48;
+  g->lapilli_n++;
+ }
+ for(i = 0; i < g->lapilli_n; i++){
+  if(--g->lap_t[i] > 0) continue;
+  if(r3d_dist(g->lap_x[i] - g->px, g->lap_z[i] - g->pz) < 120) hurt_player(g, r3d_angle(g->px - g->lap_x[i], g->pz - g->lap_z[i]), 1);
+  else g->sound_event = SND_IMPACT;
+  g->lap_x[i] = g->lap_x[g->lapilli_n - 1]; g->lap_z[i] = g->lap_z[g->lapilli_n - 1]; g->lap_t[i] = g->lap_t[g->lapilli_n - 1];
+  g->lapilli_n--; i--;
+ }
+}
+
+static void update_camera(AreliaGame *g, int moving){
+ int32_t ax, az, ay, back, cx, cz; int k;
+ if(g->mode == MODE_TITLE){
+  g->cam_yaw = (int16_t)((g->ticks * 2) & R3D_ANGLE_MASK);
+  g->cam_pitch = 40;
+  g->cam_x = U(8) - (r3d_sin(g->cam_yaw) * U(6) >> 14);
+  g->cam_z = U(10) + (r3d_cos(g->cam_yaw) * U(6) >> 14);
+  g->cam_y = U(2.3);
+  return;
+ }
+ if(g->mode == MODE_WON){
+  /* From the pier, turn from the boats to the mountain. */
+  int t = g->story > 300 ? 300 : g->story;
+  g->cam_yaw = (int16_t)((0 + (r3d_angle_diff(0, VESUVIUS_YAW) * t) / 300) & R3D_ANGLE_MASK);
+  g->cam_pitch = (int16_t)(20 - t / 10);
+  g->cam_x = U(7.5); g->cam_z = U(3.2) + t; g->cam_y = U(1.6) + t;
+  return;
+ }
+ if(g->focus){
+  const AreliaEntity *e = &g->ent[g->focus - 1];
+  g->cam_yaw = (int16_t)turn_toward(g->cam_yaw, r3d_angle(e->x - g->px, e->z - g->pz), 20);
+ } else if(moving){
+  g->cam_yaw = (int16_t)turn_toward(g->cam_yaw, g->pyaw, (r3d_angle_diff(g->cam_yaw, g->pyaw) > 300 || r3d_angle_diff(g->cam_yaw, g->pyaw) < -300) ? 0 : 7);
+ }
+ if(g->mode == MODE_DEAD) g->cam_yaw = (int16_t)((g->cam_yaw + 1) & R3D_ANGLE_MASK);
+ ax = g->px; az = g->pz; ay = AIM_HEIGHT;
+ /* Pull the camera in front of walls between it and Livia. */
+ back = CAM_DIST;
+ for(k = 1; k <= 8; k++){
+  int32_t d = CAM_DIST * k / 8;
+  cx = ax - (r3d_sin(g->cam_yaw) * d >> 14); cz = az + (r3d_cos(g->cam_yaw) * d >> 14);
+  if(world_cell(g->room, (int)(cx >> 8), (int)(cz >> 8)) == T_WALL || cx < 0 || cz < 0){back = d - CAM_DIST / 8 - 40; break;}
+ }
+ if(back < 200) back = 200;
+ /* Close to a wall the camera rises and looks down over Livia's shoulder. */
+ g->cam_pitch = (int16_t)(CAM_PITCH + (CAM_DIST - back) / 12);
+ g->cam_x = ax - (r3d_sin(g->cam_yaw) * back >> 14);
+ g->cam_z = az + (r3d_cos(g->cam_yaw) * back >> 14);
+ g->cam_y = ay + (r3d_sin(g->cam_pitch) * back / r3d_cos(g->cam_pitch));
+}
+
+static void tibia_step(AreliaGame *g, unsigned fresh){
+ static const uint16_t note_buttons[5] = {ARELIA_INPUT_UP, ARELIA_INPUT_LEFT, ARELIA_INPUT_RIGHT, ARELIA_INPUT_DOWN, ARELIA_INPUT_A};
+ int n, i, match;
+ if(fresh & ARELIA_INPUT_B){g->action = ACT_NONE; g->note_count = 0; return;}
+ for(n = 0; n < 5; n++){
+  if(!(fresh & note_buttons[n])) continue;
+  memmove(g->notes, g->notes + 1, 7); g->notes[7] = (uint8_t)n;
+  if(g->note_count < 8) g->note_count++;
+  g->sound_event = (uint8_t)(SND_NOTE0 + n);
+  match = g->note_count >= ARELIA_SONG_LEN;
+  for(i = 0; match && i < ARELIA_SONG_LEN; i++) if(g->notes[8 - ARELIA_SONG_LEN + i] != song[i]) match = 0;
+  if(!match) continue;
+  g->note_count = 0; g->action = ACT_NONE; g->sound_event = SND_SONG;
+  for(i = 0; i < g->ent_count; i++){
+   AreliaEntity *e = &g->ent[i];
+   if(!e->alive) continue;
+   if(e->type == E_ALTAR && !g->song_known && dist_to(g, e) < U(2)){g->song_known = 1; say(g, D_LEARNED); return;}
+   if(e->type == E_SEAL && g->song_known && e->state == 0 && dist_to(g, e) < U(3.2)){
+    e->state = 1; e->timer = 60; g->gone[g->room] |= (uint16_t)(1u << i); say(g, D_SEAL_OPEN); return;}
+  }
+  if(g->song_known) say(g, D_ECHO);
+  return;
+ }
+}
+
+void game_step(AreliaGame *g, unsigned buttons){
+ unsigned fresh = buttons & ~(unsigned)g->prev_buttons;
+ int ix, iz, moving = 0, kind;
+ g->prev_buttons = (uint16_t)buttons; g->buttons = (uint16_t)buttons;
+ g->ticks++;
+ if(g->mode == MODE_TITLE){
+  if(fresh & ARELIA_INPUT_START){g->mode = MODE_PLAY; load_room(g, 0, 0); say(g, D_INTRO);}
+  update_camera(g, 0);
+  return;
+ }
+ if(g->mode == MODE_DEAD){
+  if(g->story < 600) g->story++;
+  if((fresh & ARELIA_INPUT_START) && g->story > 30){
+   g->mode = MODE_PLAY; g->hp = ARELIA_HP_MAX; g->invuln = 60; load_room(g, g->room, 0);
+  }
+  update_camera(g, 0);
+  return;
+ }
+ if(g->mode == MODE_WON){
+  if(g->story < 600) g->story++;
+  if((fresh & ARELIA_INPUT_START) && g->story >= 360) game_init(g);
+  else update_camera(g, 0);
+  return;
+ }
+ g->room_ticks++;
+ if(g->banner_t) g->banner_t--;
+ if(g->dialogue){
+  if(g->dialogue_t < 255) g->dialogue_t++;
+  if(((fresh & (ARELIA_INPUT_A | ARELIA_INPUT_B)) && g->dialogue_t * 2u >= text_len(g->dialogue)) || g->dialogue_t >= 220){
+   g->dialogue = 0;
+   if(g->tibia_purpose){g->tibia_purpose = 0; g->action = ACT_TIBIA; g->note_count = 0;}
+  }
+  update_camera(g, 0);
+  return;
+ }
+ if(g->action == ACT_TIBIA){tibia_step(g, fresh); update_camera(g, 0); return;}
+ if(g->invuln) g->invuln--;
+ if(g->action_t && --g->action_t == 0) g->action = ACT_NONE;
+ if(g->focus){
+  const AreliaEntity *e = &g->ent[g->focus - 1];
+  if(!e->alive || e->state == AI_FALL || e->state == AI_LEAVE || dist_to(g, e) > U(8)) g->focus = 0;
+ }
+ if(fresh & ARELIA_INPUT_FOCUS){
+  if(g->focus) g->focus = 0;
+  else {int t = nearest_target(g); if(t >= 0){g->focus = (uint8_t)(t + 1); g->sound_event = SND_FOCUS;} else g->cam_yaw = g->pyaw;}
+ }
+ if((fresh & ARELIA_INPUT_ROLL) && (g->action == ACT_NONE || g->action == ACT_STRIKE)){
+  int d = (buttons & 15u) ? 0 : -1;
+  g->action = ACT_ROLL; g->action_t = 14; if(g->invuln < 12) g->invuln = 12; g->sound_event = SND_ROLL;
+  if(d == 0){ix = !!(buttons & ARELIA_INPUT_RIGHT) - !!(buttons & ARELIA_INPUT_LEFT); iz = !!(buttons & ARELIA_INPUT_UP) - !!(buttons & ARELIA_INPUT_DOWN);
+   g->pyaw = (int16_t)(((g->focus ? r3d_angle(g->ent[g->focus - 1].x - g->px, g->ent[g->focus - 1].z - g->pz) : g->cam_yaw) + r3d_angle(ix, -iz)) & R3D_ANGLE_MASK);}
+ }
+ if((fresh & ARELIA_INPUT_A) && g->action == ACT_NONE){g->action = ACT_STRIKE; g->action_t = 14; g->sound_event = SND_SWING;}
+ if(g->action == ACT_STRIKE && g->action_t == 10) strike_hits(g);
+ if((fresh & ARELIA_INPUT_B) && g->action == ACT_NONE) context_action(g);
+ if((fresh & ARELIA_INPUT_TIBIA) && g->action == ACT_NONE && !g->dialogue){g->action = ACT_TIBIA; g->note_count = 0; g->tibia_purpose = 0; update_camera(g, 0); return;}
+ if(g->dialogue){update_camera(g, 0); return;}
+
+ /* Movement: relative to the camera, or around the focused target. */
+ ix = !!(buttons & ARELIA_INPUT_RIGHT) - !!(buttons & ARELIA_INPUT_LEFT);
+ iz = !!(buttons & ARELIA_INPUT_UP) - !!(buttons & ARELIA_INPUT_DOWN);
+ if(g->action == ACT_ROLL){
+  player_move(g, r3d_sin(g->pyaw) * ROLL_SPEED >> 14, -r3d_cos(g->pyaw) * ROLL_SPEED >> 14);
+  moving = 1; g->walk = (int16_t)(g->walk + ROLL_SPEED);
+ } else if(g->action == ACT_NONE && (ix || iz)){
+  int base, dir, speed = g->focus ? FOCUS_SPEED : WALK_SPEED;
+  if(g->focus){const AreliaEntity *e = &g->ent[g->focus - 1]; base = r3d_angle(e->x - g->px, e->z - g->pz); g->pyaw = (int16_t)base;}
+  else base = g->cam_yaw;
+  dir = (base + r3d_angle(ix, -iz)) & R3D_ANGLE_MASK;
+  if(!g->focus) g->pyaw = (int16_t)turn_toward(g->pyaw, dir, 110);
+  player_move(g, r3d_sin(dir) * speed >> 14, -r3d_cos(dir) * speed >> 14);
+  g->walk = (int16_t)(g->walk + speed);
+  moving = 1;
+ } else if(g->focus){
+  const AreliaEntity *e = &g->ent[g->focus - 1];
+  g->pyaw = (int16_t)r3d_angle(e->x - g->px, e->z - g->pz);
+ }
+
+ /* District exits. */
+ if(world_cell(g->room, g->px >> 8, g->pz >> 8) == T_DOOR && g->pz < 70 && g->room + 1 < ARELIA_ROOMS){
+  load_room(g, g->room + 1u, 0); update_camera(g, 0); return;
+ }
+ if(world_cell(g->room, g->px >> 8, g->pz >> 8) == T_SOUTH && g->pz > U(19.75) && g->room > 0){
+  load_room(g, g->room - 1u, 1); update_camera(g, 0); return;
+ }
+ if(g->room == 3 && g->pz < U(2.2)){
+  if(g->rescued == (1u << ARELIA_ROOMS) - 1u){g->mode = MODE_WON; g->story = 0; g->sound_event = SND_VICTORY; g->focus = 0; g->palette_phase = 4; g->action = ACT_NONE;}
+  else {g->pz = (int16_t)U(2.6); say(g, D_NOT_ALL);}
+ }
+ update_entities(g);
+ update_lapilli(g);
+ context_target(g, &kind); g->prompt = (uint8_t)kind;
+ update_camera(g, moving);
+}
+
+static unsigned append(char *out, unsigned n, unsigned cap, const char *s){while(*s && n + 1 < cap) out[n++] = *s++; return n;}
+void game_status_text(const AreliaGame *g, char *out, unsigned cap){
+ unsigned n = 0, saved = 0, i; char count[4];
+ if(!out || !cap) return;
+ for(i = 0; i < ARELIA_ROOMS; i++) if(g->rescued & (1u << i)) saved++;
+ count[0] = (char)('0' + saved); count[1] = '/'; count[2] = (char)('0' + ARELIA_ROOMS); count[3] = 0;
+ if(g->mode == MODE_TITLE) n = append(out, n, cap, "POMPEII AD 79");
+ else if(g->mode == MODE_WON){n = append(out, n, cap, "SURVIVORS SAVED "); n = append(out, n, cap, count);}
+ else if(g->mode == MODE_DEAD) n = append(out, n, cap, "ASH AND SILENCE");
+ else {n = append(out, n, cap, world_room_names[g->room < ARELIA_ROOMS ? g->room : 0]); n = append(out, n, cap, " SAVED "); n = append(out, n, cap, count);
+  if(g->song_known) n = append(out, n, cap, " SONG");}
+ out[n] = 0;
+}
+
+/* Test and tool hook: start playing in a district at a position (Q8). */
+void game_debug_enter(AreliaGame *g, unsigned room, int x, int z, int yaw){
+ if(room >= ARELIA_ROOMS) room = 0;
+ g->mode = MODE_PLAY; g->dialogue = 0;
+ load_room(g, room, 0);
+ g->px = (int16_t)x; g->pz = (int16_t)z; g->pyaw = (int16_t)(yaw & R3D_ANGLE_MASK); g->cam_yaw = g->pyaw;
+ g->banner_t = 0;
+ update_camera(g, 0);
 }

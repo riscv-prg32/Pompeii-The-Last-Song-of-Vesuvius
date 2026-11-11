@@ -5,10 +5,13 @@
   assets/store/screenshot.png  320x200 gameplay frame from PRG32 QEMU
 
 The screenshot is a real frame of the cartridge running on the PRG32 QEMU
-firmware, written by `scripts/qemu_preview.py --video --out build/qemu-preview`
+firmware: by default build/qemu-preview/store_frame.png, the 30 s frame of the
+recorded preview (`ffmpeg -ss 30 -i preview.mp4 -frames:v 1`, halved with
+nearest-neighbour), or any capture written by `scripts/qemu_preview.py`
 (320x240 with the firmware bands, cropped here to the 320x200 viewport).
-Both images use the game's 16-colour palette (src/game.c) and are palettised
-because the Store trailer counts towards the 64 KiB cartridge slot.
+Both images are palettised (the icon to its 16 drawing colours, the screenshot
+to 64 adaptive colours) because the Store trailer counts towards the 64 KiB
+cartridge slot.
 """
 from __future__ import annotations
 
@@ -23,7 +26,9 @@ PAL = [0x181824, 0x3e3334, 0x607445, 0x9b8c62, 0x476878, 0x5c6542, 0xe3c58e, 0x6
 C = [((c >> 16) & 255, (c >> 8) & 255, c & 255) for c in PAL]
 
 
-def palettised(img: Image.Image) -> Image.Image:
+def palettised(img: Image.Image, colors: int = 0) -> Image.Image:
+    if colors:
+        return img.convert("RGB").quantize(colors=colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     pal = Image.new("P", (1, 1))
     pal.putpalette([v for rgb in C for v in rgb] + [0] * (768 - 48))
     return img.convert("RGB").quantize(palette=pal, dither=Image.Dither.NONE)
@@ -49,7 +54,7 @@ def icon() -> Image.Image:
     for y, row in enumerate(hero):                                                  # Livia (game sprite)
         for x, ch in enumerate(row):
             if ch != ".":
-                d.rectangle((40 + x * 2, 46 + y * 2, 41 + x * 2, 47 + y * 2), fill=C[int(ch, 16)])
+                d.rectangle((40 + x * 2, 46 + y * 2, 41 + x * 2, 47 + y * 2), fill=C[11] if ch in "6e" else C[int(ch, 16)])
     d.rectangle((0, 0, 63, 63), outline=C[12])
     return img
 
@@ -64,13 +69,13 @@ def screenshot(source: Path) -> Image.Image:
 
 
 def main() -> int:
-    source = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build/qemu-preview/room2_saved3.png"
+    source = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build/qemu-preview/store_frame.png"
     if not source.exists():
         raise SystemExit(f"missing {source}: run scripts/qemu_preview.py --video --out build/qemu-preview")
     out = ROOT / "assets/store"
     out.mkdir(parents=True, exist_ok=True)
     palettised(icon()).save(out / "icon.png", optimize=True)
-    palettised(screenshot(source)).save(out / "screenshot.png", optimize=True)
+    palettised(screenshot(source), 64).save(out / "screenshot.png", optimize=True)
     for f in ("icon.png", "screenshot.png"):
         print(f"{out / f}: {(out / f).stat().st_size} bytes")
     return 0

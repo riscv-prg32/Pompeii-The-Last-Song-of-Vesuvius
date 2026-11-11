@@ -1,41 +1,47 @@
-/* Regressions found while playing the cartridge on PRG32 QEMU (Milestone 14). */
-#include "../src/game.h"
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-static void enter_next_room(AreliaGame *g){int k;g->x=9;g->y=1;for(k=0;k<7;k++)game_step(g,0);game_step(g,ARELIA_INPUT_UP);game_step(g,0);}
-static int count_tiles(const AreliaGame *g,uint8_t t){int x,y,n=0;for(y=0;y<12;y++)for(x=0;x<20;x++)n+=g->tiles[y][x]==t;return n;}
+/* Level data and renderer invariants. */
+#include "test_util.h"
+#include "../src/r3d.h"
+static int solid_cell(unsigned r, int x, int z){char t = world_cell(r, x, z); return t == T_WALL || t == T_WATER || t == T_LOW || t == T_COLUMN;}
 int main(void){
- static AreliaGame g;static uint8_t fb[ARELIA_WIDTH*ARELIA_HEIGHT];int r,x,y,ink;
- /* "POMPEII AD 79": the digits 7 and 9 must be drawn (they were blank glyphs). */
- game_init(&g);game_render(&g,fb);
- for(ink=0,y=85;y<95;y++)for(x=176;x<192;x++)ink+=fb[y*ARELIA_WIDTH+x]==1;
- assert(ink>10);
- game_step(&g,ARELIA_INPUT_SELECT);game_step(&g,0);
- /* Every district has exactly one citizen and (districts 1-3) one rubble pile;
-  * the Waterworks rubble once replaced its citizen, making the game unwinnable.
-  * Each district announces its own name on entry. */
- for(r=0;r<ARELIA_ROOMS;r++){
-  if(r)enter_next_room(&g);
-  assert(g.room==r);
-  assert(count_tiles(&g,8)==1);
-  assert(count_tiles(&g,7)==(r==0?2:1)); /* plus the Forum's two scenery piles */
-  if(r){assert(g.dialogue==8+r);}
+ static AreliaGame g; static uint8_t fb[ARELIA_RW * ARELIA_RH + 32]; unsigned r, i, k, yaw;
+ for(r = 0; r < WORLD_ROOMS; r++){
+  int citizens = 0;
+  for(i = 0; i < WORLD_H; i++) assert(strlen(world_maps[r][i]) == WORLD_W);
+  for(i = 0; i < WORLD_MAX_ENT; i++){
+   const WorldSpawn *s = &world_spawns[r][i];
+   if(s->type == E_NONE) break;
+   if(s->type != E_BOAT) assert(!solid_cell(r, s->x2 / 2, s->z2 / 2));
+   if(s->type == E_CITIZEN){
+    citizens++;
+    if(s->param != 255){
+     const WorldSpawn *h = &world_spawns[r][s->param];
+     assert(s->param < i && h->type == E_RUBBLE);
+     assert(h->x2 / 2 != s->x2 / 2 || h->z2 / 2 != s->z2 / 2);   /* rubble never covers a citizen */
+    }
+   }
+  }
+  assert(citizens == 1);
+  assert(world_cell(r, 7, 19) == T_SOUTH && (r == 3 || world_cell(r, 7, 0) == T_DOOR));
  }
- /* Citizens block movement, so pressing toward one turns Livia to face them. */
- game_init(&g);game_step(&g,ARELIA_INPUT_SELECT);game_step(&g,0);
- g.x=9;g.y=3;g.face=1;g.move_cooldown=0;game_step(&g,ARELIA_INPUT_UP);
- assert(g.x==9&&g.y==3&&g.face==0);
- game_step(&g,0);game_step(&g,ARELIA_INPUT_ACTION);assert(g.crystals&1);
- /* Active enemies block movement too: pressing toward one only turns. */
- g.enemies[0].x=5;g.enemies[0].y=9;g.enemies[0].active=1;g.x=4;g.y=9;g.face=2;g.move_cooldown=0;g.enemy_cooldown=0;
- game_step(&g,ARELIA_INPUT_RIGHT);assert(g.x==4&&g.face==3);
- /* Tibia completion and arch opening have their own, truthful messages. */
- g.melody_active=1;g.melody_progress=2;game_step(&g,0);game_step(&g,ARELIA_INPUT_RIGHT);
- assert(g.notes==3&&g.dialogue==12);
- game_init(&g);game_step(&g,ARELIA_INPUT_SELECT);game_step(&g,0);
- g.tiles[9][10]=4;g.keys=1;g.x=9;g.y=9;g.move_cooldown=0;game_step(&g,ARELIA_INPUT_RIGHT);
- assert(g.x==10&&g.keys==0&&g.dialogue==7);
- puts("QEMU regression test passed");
+ /* Every dialogue line fits the box and uses glyphs the font has. */
+ for(i = 1; game_dialogue_text(i)[0] || i < 6; i++){
+  const char *s = game_dialogue_text(i); unsigned col = 0;
+  if(i > 40) break;
+  for(k = 0; s[k]; k++){
+   if(s[k] == '|'){col = 0; continue;}
+   assert(s[k] >= 32 && s[k] <= 90 && ++col <= 37);
+  }
+ }
+ /* The renderer stays inside the frame from any camera in any district. */
+ memset(fb + ARELIA_RW * ARELIA_RH, 0x5a, 32);
+ start_game(&g);
+ for(r = 0; r < WORLD_ROOMS; r++) for(k = 0; k < 40; k++){
+  int x = 300 + (int)(k * 911 % 3500), z = 300 + (int)(k * 577 % 4600);
+  if(solid_cell(r, x >> 8, z >> 8)) continue;
+  for(yaw = 0; yaw < 1024; yaw += 128){game_debug_enter(&g, r, x, z, (int)yaw); g.ticks = k * 13; game_render(&g, fb);}
+ }
+ for(i = 0; i < 32; i++) assert(fb[ARELIA_RW * ARELIA_RH + i] == 0x5a);
+ assert(sizeof(AreliaGame) == 256 && sizeof(AreliaEntity) == 16);
+ puts("Level and renderer regression test passed");
  return 0;
 }

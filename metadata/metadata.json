@@ -2,9 +2,9 @@
   "abi": "prg32-metadata-1.0",
   "id": "org.riscv-prg32.pompeii-the-last-song-of-vesuvius",
   "title": "Pompeii: The Last Song of Vesuvius",
-  "version": "1.0.0",
-  "summary": "Pompeii, AD 79: play the Sibyl's tibia, clear the rubble and lead four citizens to the sea before Vesuvius falls on the city.",
-  "description": "Pompeii, AD 79. The ground shakes, and Livia, an apprentice maker of musical instruments, cannot stop what is coming: she can only save people. Cross four districts of the city (the Forum, a painted villa, the waterworks of a fictional Sibylline cult and the road to the sea), find bronze keys, fight off looters, smash the fallen masonry that traps each citizen and lead Marcus, Flavia, Felix and Tullia to safety. At the Sibyl's altar, play the three-note call on the tibia, the Roman double pipe, to open the way to the coast, then watch Vesuvius erupt as the survivors escape. A short historical-fantasy adventure with original pixel art, an original score and a deterministic engine written in portable C for the PRG32 RISC-V console. The eruption cannot be prevented: the history is real, the magic is not.",
+  "version": "2.0.0",
+  "summary": "Pompeii, AD 79, in 3D: lock on to looters, roll through falling stones, play the Sibyl's song on the tibia and lead four citizens to the sea.",
+  "description": "Pompeii, AD 79. The ground shakes, and Livia, an apprentice maker of musical instruments, cannot stop what is coming: she can only save people. Explore four districts of the city in real-time 3D, the Forum, a painted villa, the waterworks of a fictional Sibylline cult and the road to the sea, behind a third-person camera that follows her. Lock on to looters and strike, roll away from their blows and from the lapilli raining on the coast road, break the masonry that traps each citizen and lead Marcus, Flavia, Felix and Tullia to safety. At the Sibyl's altar, learn a six-note song for the tibia, the Roman double pipe, and play it to sink the stone seal that blocks the road to the boats, while the plume over Vesuvius darkens the sky. An original action-adventure in the spirit of late-1990s 3D adventures, with a fixed-point software 3D renderer, an original score and a deterministic engine written in portable C for the PRG32 RISC-V console. The eruption cannot be prevented: the history is real, the magic is not.",
   "authors": [
     {
       "name": "Raffaele Montella",
@@ -19,6 +19,7 @@
     "game",
     "adventure",
     "action",
+    "3d",
     "history",
     "pompeii",
     "ancient-rome",

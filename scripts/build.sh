@@ -16,8 +16,9 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 prg32_repo="$(cd "${PRG32_REPO:-"$repo_dir/../PRG32"}" && pwd)"
 name="pompeii"
-# The 64,000-byte indexed frame plus the 32,000-byte presenter shadow need the
-# SDK's large 128 KiB executable RAM profile (the default firmware profile).
+# About 97 KB of executable RAM (the 64,000-byte 320x200 frame, per-row hashes,
+# the 256-colour palette, 3D scratch and stack) needs the SDK's 128 KiB profile
+# (the default firmware profile).
 cart_ram_kib=128
 package_limit=65536      # one Store cartridge slot: image + Store trailer
 

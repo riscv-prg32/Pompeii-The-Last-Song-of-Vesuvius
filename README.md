@@ -2,48 +2,69 @@
 
 [![Host C tests](https://img.shields.io/badge/host%20tests-passing-brightgreen)](#build-and-test) [![QEMU](https://img.shields.io/badge/PRG32%20QEMU-played%20to%20the%20end-brightgreen)](#qemu) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![PRG32](https://img.shields.io/badge/PRG32-v1.8%20portable-orange)](https://github.com/riscv-prg32/PRG32)
 
-**An original historical-fantasy adventure for the PRG32 educational RISC-V console.** Pompeii, AD 79: apprentice instrument maker Livia searches for her missing father and helps citizens escape as Mount Vesuvius awakens. A fictional enchanted Roman *tibia* (double-pipe wind instrument) opens the way to the sea. The eruption cannot be prevented.
+**An original 3D historical-fantasy action-adventure for the PRG32 educational RISC-V console.** Pompeii, AD 79: apprentice instrument maker Livia crosses four districts of the shaking city and leads its citizens to the sea as Vesuvius awakens. A fictional Sibyl's song, played on the Roman *tibia* (double pipe), sinks the stone seal on the road to the boats. The eruption cannot be prevented.
 
-> **Status:** Version 1.0.0, a complete four-district game. On the PRG32 v1.8 **QEMU** firmware it boots, runs at 30 game updates per second and has been played from the title to the ending by an automated player ([evidence](docs/qemu/)). It has **not** yet been run on **ESP32-C6 hardware**. A Cartridge Store bundle is built and validated with the Store's own ingestion code, but it has not been submitted.
+The game plays like the third-person 3D adventures of the late 1990s. A camera follows Livia, she can lock on to a target, roll out of the way, use a context button and play songs on an instrument. All of it runs on a fixed-point software 3D renderer written for a 160 MHz RV32IMC with no FPU.
+
+> **Status:** Version 2.0.0, the 3D remake of the four-district game. On the PRG32 v1.8 **QEMU** firmware it boots, runs at 30.3 game updates per second, and an automated player has played it from the title to the ending ([evidence](docs/qemu/)). It has **not** been run on **ESP32-C6 hardware**, so the hardware frame rate is unknown. A Cartridge Store bundle has been built and validated with the Store's own ingestion code. It has not been submitted.
 
 ## Preview
 
-[`assets/store/preview.mp4`](assets/store/preview.mp4) shows 60 seconds of the cartridge on PRG32 QEMU, with the firmware's own audio. Every frame and sound comes from the emulator; it is not concept art.
+[`assets/store/preview.mp4`](assets/store/preview.mp4) is 60 seconds of the cartridge on PRG32 QEMU, with the firmware's own audio. Every frame and sound comes from the emulator, not from concept art.
 
 | Title (QEMU) | Painted Villa (QEMU) |
 |:--:|:--:|
-| ![Title screen captured from PRG32 QEMU](docs/qemu/title.png) | ![Painted Villa with Livia, a rescued citizen and a looter](docs/qemu/room1_saved1.png) |
-| **Waterworks, tibia played (QEMU)** | **Ending (QEMU)** |
-| ![Waterworks altar after the tibia call](docs/qemu/room2_saved3.png) | ![Eruption ending: the people escape](docs/qemu/ending.png) |
+| ![Title screen captured from PRG32 QEMU](docs/qemu/title.png) | ![Painted Villa](docs/qemu/room1_saved2.png) |
+| **Waterworks (QEMU)** | **Ending (QEMU)** |
+| ![Waterworks](docs/qemu/room2_saved3.png) | ![Ending: the boats pull away](docs/qemu/ending.png) |
 
-Renderer captures from the host build (`make screenshots`; they call `game_render()` on constructed game states):
+These captures come from the host build: `make screenshots` calls `game_render()` on constructed game states.
 
-| Title | Forum | Tibia puzzle | Ending |
-|:--:|:--:|:--:|:--:|
-| ![Title](docs/screenshots/title.png) | ![Forum](docs/screenshots/forum.png) | ![Tibia](docs/screenshots/tibia.png) | ![Ending](docs/screenshots/ending.png) |
+| Forum | Focus on a looter | Tibia at the altar |
+|:--:|:--:|:--:|
+| ![Forum](docs/screenshots/forum.png) | ![Focus](docs/screenshots/focus.png) | ![Tibia](docs/screenshots/tibia.png) |
+| **Painted Villa** | **Road to the Sea** | **Ending** |
+| ![Villa](docs/screenshots/villa.png) | ![Road](docs/screenshots/road.png) | ![Ending](docs/screenshots/ending.png) |
 
 ## Gameplay
 
-- Explore four connected districts: **Forum**, **Painted Villa**, **Waterworks** and **Road to the Sea**, each with its own procedural Roman architecture and palette.
-- Rescue the named citizens Marcus, Flavia, Felix and Tullia. Citizens stand their ground: walk toward one to face them, then press **B**.
-- In the Villa, Waterworks and Sea Road, fallen masonry traps the citizen: strike it with **A** first.
-- Looters chase you and block your way. Walking toward one turns you to face it; **A** strikes it.
-- Find bronze keys; the Sea Road arch needs one.
-- Stand on the Waterworks altar and press **B**, then play **UP**, **LEFT**, **RIGHT** as separate presses. **B** cancels.
-- With all four citizens saved and the melody played, reach the exit beyond the Sea Road arch. Vesuvius erupts as the people escape.
-- Keys, rescues, opened arches, cleared rubble and defeated looters persist when you revisit a district.
+- **Four 3D districts:** the **Forum**, the **Painted Villa**, the **Waterworks** and the **Road to the Sea**. Each has its own architecture (colonnades, an impluvium, channels and bridges, tombs) and palette. The sky darkens and ash falls as the eruption advances, and the plume over Vesuvius grows on the skyline.
+- **Rescue** Marcus, Flavia, Felix and Tullia with **B**. In the last three districts fallen masonry traps the citizen; break it with **A** first.
+- **Looters:** they wind up a club before swinging. Press **L** to focus, which brings letterbox bars and a gold marker. Strike with **A**, and dodge with **R**. Defeated looters sometimes drop an amphora that restores health.
+- **Keys:** bronze keys open the gates of the Forum and the Villa.
+- **The Sibyl's song:** read the Waterworks altar with **B** and the tibia rises. Play **UP LEFT RIGHT UP LEFT RIGHT** to learn the song. On the Road to the Sea, raise the tibia with **C** in front of the stone seal and play the song again to sink it.
+- **Lapilli** fall on the coast road: watch for their growing shadows and roll.
+- **The pier:** with everyone saved, walk onto the pier. The boats pull away and the camera turns to the mountain.
+- **Persistence:** keys, gates, rubble, defeated looters, rescues and the seal stay as you left them across districts. Defeat keeps that progress and returns Livia to the district entrance.
 
 ### Controls
 
 | Control | Function |
 |---|---|
-| D-pad | Move; face citizens, rubble and looters; tibia notes |
-| **A** | Strike |
-| **B** | Rescue / play the altar / cancel the tibia |
-| **START** | Start; retry after defeat; new game after the ending |
-| **C** | Reserved |
+| D-pad | Move relative to the camera; circle the target while focused; tibia notes |
+| **A** | Strike; advance dialogue |
+| **B** | Context action: rescue, read, check (the HUD shows which); lower the tibia |
+| **C** | Raise the tibia (notes: UP, LEFT, RIGHT, DOWN, A) |
+| **L** | Focus on the nearest looter or object; with nothing near, recenter the camera |
+| **R** | Dodge roll |
+| **START** | Start; rise again after defeat; new game after the ending |
 
-On PRG32 QEMU the keyboard maps w/a/s/d to the D-pad, z (or h) to A, x (or j) to B, and Enter to START.
+On PRG32 QEMU the keyboard maps:
+- w/a/s/d to the D-pad
+- z to A, x to B, k to C
+- q to L, e to R
+- Enter to START
+
+## How the 3D works
+
+- **Scale:** the scene renders at the viewport's native 320x200 in 8-bit indexed colour. The interface is laid out on a 2x2-pixel grid, so the 3x5 font stays legible.
+- **Fixed point:** world coordinates are Q8 (256 per map cell) and trigonometry is Q14 from a quarter-sine table. There is no floating point and no 64-bit arithmetic: portable cartridges link without libgcc.
+- **Drawing order:**
+  1. a per-row sky gradient, with Vesuvius and its plume placed by azimuth;
+  2. a perspective floor drawn by per-row floor casting, with texture and fog by material;
+  3. walls, columns, blocks, low-poly characters and props, sorted far to near (painter's algorithm) and clipped against the view frustum in camera space.
+- **Palette:** 256 colours, laid out as `material * 16 + light * 4 + fog`, with a fixed interface ramp at 240-255. Each district loads a darker variant.
+- **Presenter:** a full copy of the frame would not fit in RAM, so the presenter keeps a 32-bit hash per row instead (800 bytes). It resends only the rows that changed, as runs of equal colour, and does a full resync every 300 frames.
 
 ## Build and test
 
@@ -53,13 +74,25 @@ On PRG32 QEMU the keyboard maps w/a/s/d to the D-pad, z (or h) to A, x (or j) to
 make test
 ```
 
-The tests cover the game logic, the presenter, sound, the status line and regressions. They also include a **full playthrough** (`tools/autoplay.py`): a bot finishes the game from the title using button presses only, running against the host build through `ctypes`.
+Ten C test programs cover:
+- the controller contract
+- dialogue, the altar and the seal
+- rescue hazards
+- room persistence through the real exits
+- the eruption and ending
+- audio phrases and music
+- the presenter
+- the status band
+- level data invariants
+- a 20,000-frame random-input smoke run, plus a renderer bounds check from many camera positions in every district
+
+`make test` also runs a **full playthrough** with `tools/autoplay.py`. This bot finishes the game from the title with button presses only, against the host build through `ctypes`. It parses the maps from `src/world.c`, plans a path, and presses the D-pad direction that the current camera turns into the heading it wants.
 
 ```sh
 make screenshots
 ```
 
-This writes PPM frames from the real renderer to `docs/screenshots/`. Convert them to PNG with Pillow or ImageMagick.
+This writes PPM frames from the real renderer, scaled to 320x200, to `docs/screenshots/`. Convert them to PNG with Pillow or ImageMagick.
 
 ### PRG32 cartridges
 
@@ -70,13 +103,13 @@ git clone https://github.com/riscv-prg32/PRG32.git ../PRG32
 make cartridge PRG32_ROOT=../PRG32
 ```
 
-`scripts/build.sh` does the following:
-1. Proves the image is **position independent** (`tools/check_relocatable.py`). Portable cartridges carry no relocations, and each host loads them at a different address.
-2. Builds `dist/pompeii-esp32c6.prg32` and `dist/pompeii-qemu.prg32` with `--portable --entry-prefix arelia`. The `arelia` prefix is an internal ABI name, not the title.
-3. Attaches the Store metadata, icon, screenshot and colophon.
-4. Writes `dist/SHA256SUMS`.
+`scripts/build.sh` does four things:
+1. It proves the image is **position independent** with `tools/check_relocatable.py`.
+2. It builds `dist/pompeii-esp32c6.prg32` and `dist/pompeii-qemu.prg32` with `--portable --entry-prefix arelia`. The `arelia` prefix is an internal ABI name.
+3. It attaches the Store metadata, icon, screenshot and colophon.
+4. It writes `dist/SHA256SUMS`.
 
-The builds are byte-reproducible. Each image is 19,238 bytes, and the cartridge needs **108,484 bytes of executable RAM**. That fits the SDK's default 128 KiB profile, but not the 32 KiB classroom or 64 KiB extended profiles. The committed cartridges were built with `riscv32-esp-elf-gcc` 14.2.0 against PRG32 v1.8.0 (`development-c6`, commit `e90c59b`).
+Each image is 46,696 bytes with its Store trailer, within the 64 KiB Store slot. The cartridge needs **96,884 bytes of executable RAM**, so it uses the SDK's default 128 KiB profile. The committed cartridges were built with `riscv32-esp-elf-gcc` 14.2.0 against PRG32 v1.8.0.
 
 ### QEMU
 
@@ -85,12 +118,20 @@ make qemu PRG32_ROOT=../PRG32
 make preview PRG32_ROOT=../PRG32
 ```
 
-`scripts/qemu_preview.py` works on a temporary copy of the PRG32 QEMU flash image. It boots the firmware, leaving PRG32 SETUP with B if needed, and uploads the cartridge. It then plays with the same bot as the host test. The bot reads the game state from guest RAM through QMP and answers with UART key presses only. The script writes captures, `audio.wav`, `run.json`, and (for `make preview`) the 60 s `preview.mp4`. It needs the firmware in `../PRG32/build-qemu` (`python3 -m prg32 qemu build`), Espressif's `qemu-riscv32`, Pillow, numpy and ffmpeg.
+`scripts/qemu_preview.py`:
+1. Works on a temporary copy of the PRG32 QEMU flash image.
+2. Boots the firmware, leaving PRG32 SETUP with B if needed.
+3. Uploads the cartridge.
+4. Plays with the same bot as the host test. The bot reads the game state from guest RAM through QMP and answers with UART key presses only. It holds directions by repeating keys inside the firmware's 120 ms hold window.
+
+It writes captures, `audio.wav` and `run.json`; `make preview` also writes the 60 s `preview.mp4`.
 
 Measured on 2026-11-11 (see [`docs/qemu/smoke-run.json`](docs/qemu/smoke-run.json)):
-- Boot to title in 10.5 s.
-- **30.1 game updates per second.**
-- The ending reached after 130 taps and 29.3 s of play, with no faults in the console log.
+
+- Boot to title in 10.6 s.
+- **30.3 game updates per second** with the full 3D scene (the firmware's 30 fps target), so QEMU shows no slowdown.
+- The bot reached the ending after 559 inputs and 143.6 s of play, rescuing all four citizens and learning and playing the song. The console log shows no faults.
+- QEMU speed says nothing about ESP32-C6 speed. A moving frame sends about 3,300 one-row runs to the display, and the hardware frame rate has not been measured.
 
 ### Cartridge Store
 
@@ -98,14 +139,14 @@ Measured on 2026-11-11 (see [`docs/qemu/smoke-run.json`](docs/qemu/smoke-run.jso
 make store PRG32_ROOT=../PRG32
 ```
 
-This packs `dist/pompeii-1.0.0-store.zip` (manifest, icon, splash, `preview.mp4`, and both cartridges). It validates the bundle with CartridgeStore's own `_prepare_bundle()` and `_bundle_preview()` when `../CartridgeStore` is available. See [docs/store_publishing.md](docs/store_publishing.md). Submitting is an authenticated, human-approved step, and no script here does it.
+This packs `dist/pompeii-2.0.0-store.zip`, which holds the manifest, icon, splash, `preview.mp4` and both cartridges. When `../CartridgeStore` is available, it validates the bundle with CartridgeStore's own `_prepare_bundle()` and `_bundle_preview()`. See [docs/store_publishing.md](docs/store_publishing.md). Submitting is an authenticated, human-approved step, and no script here does it.
 
 ## Repository layout
 
 ```text
-src/                 portable engine, sprites, music, presenter and PRG32 bridge
+src/                 game logic, world data, 3D rasterizer, renderer, music, presenter, PRG32 bridge
 sdk/string.h         minimal freestanding C shim
-tools/               host tests, autoplay bot, relocation check, Store art and bundle validation
+tools/               host tests, autoplay bot, trig table generator, relocation check, Store art and bundle validation
 scripts/             cartridge build, QEMU playthrough and video, Store bundle packing
 metadata/            Store metadata and colophon (single source of truth)
 assets/store/        icon, screenshot and 60 s preview video
@@ -118,11 +159,11 @@ STORY.md             setting, mechanics and narrative constraints
 
 ## For contributors and coding agents
 
-Read [AGENTS.md](AGENTS.md) before making changes. Keep `make test` green, including the playthrough. Re-run `make qemu` after engine or bridge changes, and never claim ESP32-C6 hardware validation without a recorded run.
+Read [AGENTS.md](AGENTS.md) before making changes. Keep `make test` green, including the playthrough. Re-run `make qemu` after engine or bridge changes. Never claim ESP32-C6 hardware validation without a recorded run.
 
 ## Historical and IP notes
 
-The story is original. It is inspired by ancient Roman life, Pompeii's archaeological context, and the atmosphere of Edward Bulwer-Lytton's public-domain 1834 novel *The Last Days of Pompeii*. It does **not** use Nintendo characters, visual assets, melodies, symbols or dialogue. The magic is fictional; the *tibia* is a historical Roman wind instrument. The precise date of the AD 79 eruption is intentionally not specified. See [STORY.md](STORY.md).
+The story is original. It draws on ancient Roman life, Pompeii's archaeological context, and the atmosphere of Edward Bulwer-Lytton's public-domain 1834 novel *The Last Days of Pompeii*. The game's structure is inspired by a genre, the third-person 3D action-adventure. It uses no characters, names, models, melodies, symbols, interface or dialogue from any existing game. The magic is fictional, while the *tibia* is a real Roman wind instrument. The game deliberately does not give a precise date for the AD 79 eruption. See [STORY.md](STORY.md).
 
 ## License
 
@@ -130,4 +171,4 @@ MIT; see [LICENSE](LICENSE). The license covers this repository's original work.
 
 ## History
 
-See [CHANGELOG.md](CHANGELOG.md). Milestone 14 (1.0.0) is the first version run on QEMU. It fixed an unwinnable Waterworks, a cartridge that only worked when loaded at one address, wrong district banners, a missing "79" on the title, and near-silent audio.
+See [CHANGELOG.md](CHANGELOG.md). Version 2.0.0 rebuilds the game in 3D. Version 1.0.0 was the top-down game that was first run on QEMU.

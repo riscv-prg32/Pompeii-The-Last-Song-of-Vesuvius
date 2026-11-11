@@ -2,19 +2,23 @@
 """Play Pompeii: The Last Song of Vesuvius to the end with button presses only.
 
 The policy reads the game state (the C `AreliaGame` struct) and answers with
-one button tap. It drives two hosts:
+the buttons to hold for the next tap. It drives two hosts:
 
-* the host build of src/game.c through ctypes (`python3 tools/autoplay.py`):
+* the host build of the game logic through ctypes (`python3 tools/autoplay.py`):
   a regression test that the whole game can be completed from the title;
 * the PRG32 QEMU firmware (scripts/qemu_preview.py), where the state is read
   from cartridge RAM through QMP.
 
-The bot re-plans after every tap, so it tolerates frame-timing differences
-between hosts. It only presses buttons; it never writes game memory.
+Movement is camera relative, as for a player: the bot plans a path over the
+district grid (maps parsed from src/world.c), picks the waypoint heading and
+presses the D-pad direction whose on-screen meaning is closest to it. It
+re-plans after every tap and never writes game memory.
 """
 from __future__ import annotations
 
 import ctypes
+import math
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,124 +26,219 @@ from collections import deque
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-W, H, ROOMS, ENEMIES = 20, 12, 4, 6
+W, H, ROOMS, MAX_ENT = 16, 20, 4, 10
 # Offsets of AreliaGame fields (src/game.h); identical on RV32 ilp32 and on
 # LP64 hosts because the struct holds no pointers or longs. check_layout()
 # verifies them against the host compiler.
-OFF = dict(tiles=0, room=240, x=241, y=242, face=243, hp=244, keys=245, crystals=246, notes=247,
-           won=248, dead=249, attack=250, invuln=251, move_cooldown=252, enemy_cooldown=253, mode=254,
-           sound_event=255, ticks=256, eruption_frames=260, visited=264, collected_keys=268,
-           defeated_enemies=272, gate_open=276, cleared_hazards=280, dialogue=284, dialogue_timer=285,
-           previous_buttons=286, melody_progress=287, melody_active=288, rescued_count=289, enemies=290)
-SIZE = 316
-BUTTONS = {"up": 1, "down": 2, "left": 4, "right": 8, "a": 16, "b": 64, "start": 128}
-STEP = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
-FACE = {"up": 0, "down": 1, "left": 2, "right": 3}
-MELODY = ("up", "left", "right")
-# Per district: key, rubble, citizen, and (district 2) the Sibyl's altar.
-KEY = {0: (16, 5), 1: (4, 6)}
-RUBBLE = {1: (10, 9), 2: (13, 6), 3: (14, 6)}
-CITIZEN = {0: (9, 2), 1: (11, 9), 2: (14, 6), 3: (15, 6)}
-ALTAR, DOOR, EXIT = (8, 6), (9, 1), (9, 6)
+OFF = dict(mode=0, room=1, hp=2, keys=3, song_known=4, rescued=5, action=6, action_t=7, invuln=8, focus=9,
+           sound_event=10, dialogue=11, dialogue_t=12, banner_t=13, note_count=14, tibia_purpose=15, notes=16,
+           px=24, pz=26, pyaw=28, walk=30, cam_yaw=32, cam_pitch=34, cam_x=36, cam_y=40, cam_z=44, ticks=48,
+           room_ticks=52, story=54, gone=56, buttons=64, prev_buttons=66, ent_count=68, prompt=69,
+           lapilli_n=70, palette_phase=71, lap_x=72, lap_z=80, lap_t=88, ent=96)
+SIZE = 256
+ENT_SIZE = 16
+BUTTONS = {"up": 1, "down": 2, "left": 4, "right": 8, "a": 16, "c": 32, "b": 64, "start": 128, "l": 256, "r": 512}
+MODE_TITLE, MODE_PLAY, MODE_DEAD, MODE_WON = range(4)
+ACT_TIBIA = 3
+E_NONE, E_LOOTER, E_CITIZEN, E_RUBBLE, E_KEY, E_DOOR, E_ALTAR, E_SEAL, E_BOAT, E_LIFE = range(10)
+AI_FALL, AI_LEAVE = 6, 7
+SONG = ("up", "left", "right", "up", "left", "right")
+SOLID = set("#~bo")
+
+
+def load_maps() -> list[list[str]]:
+    text = (ROOT / "src" / "world.c").read_text()
+    body = text[text.index("world_maps"):text.index("world_spawns")]
+    rows = re.findall(r'"([^"]{16})"', body)
+    assert len(rows) == ROOMS * H, len(rows)
+    return [rows[r * H:(r + 1) * H] for r in range(ROOMS)]
+
+
+MAPS = load_maps()
+
+
+def s16(raw: bytes, o: int) -> int:
+    return int.from_bytes(raw[o:o + 2], "little", signed=True)
+
+
+class Ent:
+    def __init__(self, raw: bytes, i: int):
+        o = OFF["ent"] + ENT_SIZE * i
+        self.i = i
+        self.type, self.alive, self.state, self.hp = raw[o], raw[o + 1], raw[o + 2], raw[o + 3]
+        self.x, self.z, self.yaw, self.timer = (s16(raw, o + 4 + 2 * k) for k in range(4))
+        self.param = raw[o + 12]
 
 
 class State:
     def __init__(self, raw: bytes):
         assert len(raw) >= SIZE
-        self.raw = raw
-        u8 = lambda k: raw[OFF[k]]
-        for k in ("room", "x", "y", "face", "hp", "keys", "crystals", "notes", "won", "dead",
-                  "attack", "mode", "dialogue", "melody_progress", "melody_active", "rescued_count"):
-            setattr(self, k, u8(k))
-        self.ticks = int.from_bytes(raw[256:260], "little")
-        self.eruption_frames = int.from_bytes(raw[260:262], "little")
-        self.tiles = [list(raw[y * W:(y + 1) * W]) for y in range(H)]
-        self.collected_keys = list(raw[268:272])
-        self.cleared = list(raw[280:284])
-        self.enemies = []
-        for i in range(ENEMIES):
-            ex, ey, hp, act = (int.from_bytes(raw[290 + 4 * i + j:291 + 4 * i + j], "little", signed=True) for j in range(4))
-            if act:
-                self.enemies.append((ex, ey))
+        for k in ("mode", "room", "hp", "keys", "song_known", "rescued", "action", "focus", "dialogue",
+                  "dialogue_t", "note_count", "ent_count"):
+            setattr(self, k, raw[OFF[k]])
+        self.room = min(self.room, ROOMS - 1)
+        self.px, self.pz, self.pyaw, self.cam_yaw = (s16(raw, OFF[k]) for k in ("px", "pz", "pyaw", "cam_yaw"))
+        self.story = int.from_bytes(raw[OFF["story"]:OFF["story"] + 2], "little")
+        self.ticks = int.from_bytes(raw[OFF["ticks"]:OFF["ticks"] + 4], "little")
+        self.gone = [int.from_bytes(raw[OFF["gone"] + 2 * r:OFF["gone"] + 2 * r + 2], "little") for r in range(ROOMS)]
+        self.ents = [Ent(raw, i) for i in range(min(self.ent_count, MAX_ENT))]
 
     def summary(self) -> str:
-        return (f"room={self.room} pos=({self.x},{self.y}) hp={self.hp} keys={self.keys} "
-                f"saved={bin(self.crystals).count('1')}/4 notes={self.notes} won={self.won} dead={self.dead}")
+        return (f"mode={self.mode} room={self.room} pos=({self.px / 256:.2f},{self.pz / 256:.2f}) hp={self.hp} "
+                f"keys={self.keys} saved={bin(self.rescued).count('1')}/4 song={self.song_known} story={self.story}")
+
+    def live(self, kind: int) -> list[Ent]:
+        return [e for e in self.ents if e.type == kind and e.alive and e.state not in (AI_FALL, AI_LEAVE)]
+
+    def finished(self) -> bool:
+        return self.mode == MODE_WON and self.story >= 360
 
 
-def passable(s: State, x: int, y: int) -> bool:
-    if not (0 <= x < W and 0 <= y < H) or (x, y) in s.enemies:
-        return False
-    t = s.tiles[y][x]
-    # Spend the bronze key only on the Sea Road arch that guards the exit.
-    return t not in (1, 2, 7, 8) and (t != 4 or (s.keys > 0 and s.room == 3))
+# ---------------------------------------------------------------- geometry
+def angle(dx: float, dz: float) -> int:
+    """Yaw of (dx, dz): 0 north (-z), 256 east; 1024 per turn."""
+    return int(round(math.atan2(dx, -dz) * 512 / math.pi)) & 1023
 
 
-def first_step(s: State, goals: set) -> str | None:
-    """First direction of a shortest path to any goal cell (BFS)."""
-    start = (s.x, s.y)
-    if start in goals:
-        return None
+def adiff(a: int, b: int) -> int:
+    return ((b - a + 512) & 1023) - 512
+
+
+def dist(s: State, x: float, z: float) -> float:
+    return math.hypot(x - s.px, z - s.pz)
+
+
+DIRS = {"up": (0, 1), "down": (0, -1), "left": (-1, 0), "right": (1, 0),
+        "up+left": (-1, 1), "up+right": (1, 1), "down+left": (-1, -1), "down+right": (1, -1)}
+
+
+def steer(s: State, heading: int) -> str:
+    """D-pad combination whose camera-relative direction is closest to heading."""
+    if s.focus:     # while focused, movement is relative to the line to the target
+        e = s.ents[s.focus - 1]
+        base = angle(e.x - s.px, e.z - s.pz)
+    else:
+        base = s.cam_yaw
+    best, err = "up", 9999
+    for name, (ix, iz) in DIRS.items():
+        e = abs(adiff((base + angle(ix, -iz)) & 1023, heading))
+        if e < err:
+            best, err = name, e
+    return best
+
+
+def blocked_cells(s: State) -> set:
+    cells = set()
+    for e in s.ents:
+        if not e.alive or e.state == AI_LEAVE:
+            continue
+        if e.type in (E_DOOR, E_SEAL) and e.state == 0 or e.type in (E_RUBBLE, E_ALTAR, E_CITIZEN):
+            cells.add((e.x >> 8, e.z >> 8))
+    return cells
+
+
+def path_heading(s: State, goal_cells: set, tx: float, tz: float) -> int | None:
+    """Heading toward the next cell of a shortest path to any goal cell."""
+    grid = MAPS[s.room]
+    start = (s.px >> 8, s.pz >> 8)
+    if start in goal_cells:
+        return angle(tx - s.px, tz - s.pz)
+    blocked = blocked_cells(s) - goal_cells
     prev = {start: None}
     q = deque([start])
     while q:
         c = q.popleft()
-        for name, (dx, dy) in STEP.items():
-            n = (c[0] + dx, c[1] + dy)
-            if n in prev or not passable(s, *n):
+        if c in goal_cells:
+            path = [c]
+            while prev[path[-1]] is not None:
+                path.append(prev[path[-1]])
+            path.reverse()
+            nxt = path[1]
+            if len(path) == 2:
+                return angle(tx - s.px, tz - s.pz)
+            # Aim for the next cell centre; skip it once Livia is close.
+            cx, cz = nxt[0] * 256 + 128, nxt[1] * 256 + 128
+            if math.hypot(cx - s.px, cz - s.pz) < 70 and len(path) > 2:
+                cx, cz = path[2][0] * 256 + 128, path[2][1] * 256 + 128
+            return angle(cx - s.px, cz - s.pz)
+        for dx, dz in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            n = (c[0] + dx, c[1] + dz)
+            if n in prev or not (0 <= n[0] < W and 0 <= n[1] < H):
                 continue
-            prev[n] = (c, name)
-            if n in goals:
-                while prev[n][0] != start:
-                    n = prev[n][0]
-                return prev[n][1]
+            if (grid[n[1]][n[0]] in SOLID or n in blocked) and n not in goal_cells:
+                continue
+            prev[n] = c
             q.append(n)
-    return "wait"
+    return None
 
 
-def toward(s: State, tx: int, ty: int) -> str:
-    return {(0, -1): "up", (0, 1): "down", (-1, 0): "left", (1, 0): "right"}[(tx - s.x, ty - s.y)]
+def go(s: State, tx: float, tz: float) -> str:
+    h = path_heading(s, {(int(tx) >> 8, int(tz) >> 8)}, tx, tz)
+    return "wait" if h is None else steer(s, h)
 
 
-def act_on(s: State, target: tuple, button: str) -> str:
-    """Stand next to a blocking target, face it, press the button."""
-    tx, ty = target
-    sides = {(tx + dx, ty + dy) for dx, dy in STEP.values() if passable(s, tx + dx, ty + dy) or (tx + dx, ty + dy) == (s.x, s.y)}
-    step = first_step(s, sides)
-    if step:
-        return step
-    d = toward(s, tx, ty)
-    return button if s.face == FACE[d] else d   # pressing toward a blocker only turns
+def use(s: State, e: Ent, button: str, reach: float) -> str:
+    """Walk up to an entity, face it and press button."""
+    if dist(s, e.x, e.z) > reach:
+        return go(s, e.x, e.z)
+    want = angle(e.x - s.px, e.z - s.pz)
+    if abs(adiff(s.pyaw, want)) > 90:
+        return steer(s, want)   # pushing toward a blocker only turns Livia
+    return button
 
 
-def walk_to(s: State, target: tuple, then: str | None = None) -> str:
-    step = first_step(s, {target})
-    return step if step else (then or "wait")
-
-
+# ---------------------------------------------------------------- policy
 def decide(s: State) -> str:
-    if s.won:
+    if s.mode == MODE_WON:
         return "wait"
-    if s.dead or not s.mode:
+    if s.mode in (MODE_TITLE, MODE_DEAD):
         return "start"
-    if s.melody_active:
-        return MELODY[s.melody_progress % 3]
-    for ex, ey in s.enemies:                      # fight anything adjacent
-        if abs(ex - s.x) + abs(ey - s.y) == 1:
-            d = toward(s, ex, ey)
-            return "a" if s.face == FACE[d] else d
+    if s.dialogue:
+        return "a" if s.dialogue_t > 40 else "wait"
     r = s.room
-    if r in KEY and not s.collected_keys[r]:
-        return walk_to(s, KEY[r])
-    if r in RUBBLE and not s.cleared[r]:
-        return act_on(s, RUBBLE[r], "a")
-    if not s.crystals & (1 << r):
-        return act_on(s, CITIZEN[r], "b")
-    if r == 2 and s.notes < 3:
-        return walk_to(s, ALTAR, "b")
+    if s.action == ACT_TIBIA:
+        near_altar = any(dist(s, e.x, e.z) < 500 for e in s.live(E_ALTAR)) and not s.song_known
+        near_seal = s.song_known and any(e.state == 0 and dist(s, e.x, e.z) < 800 for e in s.live(E_SEAL))
+        if (near_altar or near_seal) and s.note_count < 6:
+            return SONG[s.note_count]
+        return "b"
+    # Fight: focus the nearest looter, close in and strike.
+    looters = sorted(s.live(E_LOOTER), key=lambda e: dist(s, e.x, e.z))
+    if looters and dist(s, looters[0].x, looters[0].z) < 2.6 * 256:
+        e = looters[0]
+        if not s.focus:
+            return "l"
+        f = s.ents[s.focus - 1]
+        return "a" if dist(s, f.x, f.z) < 300 else "up"
+    if s.focus:
+        return "l"
+    gone = s.gone[r]
+    def by_type(kind: int) -> list[Ent]:
+        return [e for e in s.ents if e.type == kind and e.alive]
+    for e in by_type(E_KEY):
+        return go(s, e.x, e.z)
+    if r == 2 and not s.song_known:
+        return use(s, by_type(E_ALTAR)[0], "b", 340)
+    for e in by_type(E_RUBBLE):
+        return use(s, e, "a", 300)
+    if not s.rescued & (1 << r):
+        for e in by_type(E_CITIZEN):
+            if e.state != AI_LEAVE:
+                return use(s, e, "b", 300)
+    for e in by_type(E_SEAL):
+        if e.state == 0:
+            return "c" if dist(s, e.x, e.z) < 600 else go(s, e.x, e.z + 300)
+    for e in by_type(E_DOOR):
+        if e.state == 0:
+            return go(s, e.x, e.z) if dist(s, e.x, e.z) > 200 else "up"
     if r == 3:
-        return walk_to(s, EXIT)
-    return walk_to(s, DOOR, "up")
+        return go(s, 7.5 * 256, 1.4 * 256)
+    door = next((x, z) for z, row in enumerate(MAPS[r]) for x, t in enumerate(row) if t == "D")
+    return go(s, door[0] * 256 + 128, 20)
+
+
+def buttons_of(key: str) -> int:
+    return sum(BUTTONS.get(k, 0) for k in key.split("+"))
 
 
 # ---------------------------------------------------------------- host build
@@ -148,38 +247,39 @@ def check_layout(tmp: Path) -> None:
     fields = [k for k in OFF]
     src.write_text('#include "game.h"\n#include <stddef.h>\n#include <stdio.h>\nint main(void){'
                    + "".join(f'printf("%u ",(unsigned)offsetof(AreliaGame,{k}));' for k in fields)
-                   + 'printf("%u\\n",(unsigned)sizeof(AreliaGame));return 0;}\n')
+                   + 'printf("%u %u\\n",(unsigned)sizeof(AreliaGame),(unsigned)sizeof(AreliaEntity));return 0;}\n')
     exe = tmp / "layout"
     subprocess.run(["cc", "-I", str(ROOT / "src"), str(src), "-o", str(exe)], check=True)
     got = [int(v) for v in subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.split()]
-    want = [OFF[k] for k in fields] + [SIZE]
+    want = [OFF[k] for k in fields] + [SIZE, ENT_SIZE]
     assert got == want, f"AreliaGame layout changed: {got} != {want}; update OFF in tools/autoplay.py"
 
 
-def host_playthrough(hold: int = 4, release: int = 3, max_taps: int = 2000, verbose: bool = False) -> tuple[int, int]:
+def host_playthrough(hold: int = 4, release: int = 2, max_taps: int = 6000, verbose: bool = False) -> tuple[int, int]:
     with tempfile.TemporaryDirectory(prefix="pompeii-autoplay-") as tmp_s:
         tmp = Path(tmp_s)
         check_layout(tmp)
         lib = tmp / "libgame.so"
         subprocess.run(["cc", "-std=c99", "-O1", "-shared", "-fPIC", "-o", str(lib),
-                        *(str(ROOT / "src" / f) for f in ("game.c", "sprites.c", "music.c"))], check=True)
+                        *(str(ROOT / "src" / f) for f in ("r3d.c", "world.c", "game.c"))], check=True)
         game = ctypes.CDLL(str(lib))
         buf = ctypes.create_string_buffer(SIZE)
         game.game_init(buf)
         frames = 0
         for taps in range(1, max_taps + 1):
             s = State(buf.raw)
-            if s.won and s.eruption_frames >= 240:
+            if s.finished():
                 return taps, frames
             key = decide(s)
             if verbose:
                 print(f"{s.summary()} -> {key}")
+            b = buttons_of(key)
             for f in range(hold + release):
-                game.game_step(buf, BUTTONS.get(key, 0) if f < hold else 0)
+                game.game_step(buf, b if f < hold else 0)
             frames += hold + release
         raise AssertionError(f"not finished after {max_taps} taps: {State(buf.raw).summary()}")
 
 
 if __name__ == "__main__":
     taps, frames = host_playthrough(verbose="-v" in sys.argv)
-    print(f"Full playthrough test passed: {taps} taps, {frames} frames")
+    print(f"Full playthrough test passed: {taps} taps, {frames} frames ({frames / 30:.0f} s at 30 fps)")

@@ -1,10 +1,10 @@
 CC ?= cc
 CFLAGS ?= -std=c99 -Os -Wall -Wextra -Werror -pedantic
-COMMON = src/game.c src/sprites.c src/music.c src/present.c
+COMMON = src/r3d.c src/world.c src/game.c src/render.c src/music.c src/present.c
 .PHONY: all check test screenshots clean cartridge qemu preview store
 all: test
 check:
-	$(CC) $(CFLAGS) -fsyntax-only $(COMMON) src/platform.c tools/render_ppm.c tools/screenshot_scenes.c tools/eruption_test.c tools/hazard_test.c tools/present_test.c tools/status_test.c tools/regression_test.c
+	$(CC) $(CFLAGS) -fsyntax-only $(COMMON) src/platform.c tools/screenshot_scenes.c
 
 test: check
 	@mkdir -p .build

@@ -1,10 +1,10 @@
 # Publishing on the PRG32 Cartridge Store
 
-Release 1.0.0 ships one Store bundle:
+Release 2.0.0 ships one Store bundle:
 
 | Bundle | Store id | Contents |
 |---|---|---|
-| `dist/pompeii-1.0.0-store.zip` | `org.riscv-prg32.pompeii-the-last-song-of-vesuvius` | `manifest.json`, `icon.png`, `splash.png`, `preview.mp4`, `pompeii-esp32c6.prg32`, `pompeii-qemu.prg32` |
+| `dist/pompeii-2.0.0-store.zip` | `org.riscv-prg32.pompeii-the-last-song-of-vesuvius` | `manifest.json`, `icon.png`, `splash.png`, `preview.mp4`, `pompeii-esp32c6.prg32`, `pompeii-qemu.prg32` |
 
 The bundle was validated with CartridgeStore's own ingestion code, at CartridgeStore commit `156368b`. Two functions were used: `_prepare_bundle()`, which implements `POST /api/publish/bundle`, and `_bundle_preview()`, which reads the preview video. The bundle is **ready for submission** but has **not** been submitted: publishing is an authenticated, human-approved step. Checksums are in `dist/SHA256SUMS`.
 
@@ -12,9 +12,9 @@ The bundle was validated with CartridgeStore's own ingestion code, at CartridgeS
 
 ```text
 manifest.json     prg32-metadata-1.0 object + assets + architectures + colophon
-icon.png          64x64 palettised PNG (1,112 bytes)
-splash.png        320x200 Waterworks frame captured from the PRG32 QEMU firmware
-preview.mp4       60 s, 640x400 H.264 + AAC, real QEMU frames and audio (964 KB)
+icon.png          64x64 palettised PNG (1,107 bytes)
+splash.png        320x200 Forum fight frame captured from the PRG32 QEMU firmware
+preview.mp4       60 s, 640x400 H.264 + AAC, real QEMU frames and audio (4.6 MB)
 *.prg32           one file per architecture: esp32c6 and qemu
 ```
 
@@ -25,7 +25,7 @@ preview.mp4       60 s, 640x400 H.264 + AAC, real QEMU frames and audio (964 KB)
 - `architectures` lists the `esp32c6` and `qemu` files.
 - `colophon` is embedded as an object.
 
-The Store rebuilds every cartridge from the manifest, icon, splash and colophon. Each rebuilt image is about 19.1 KB, within the 64 KiB slot (about 46.4 KB free). At run time the cartridge needs 108,484 bytes of executable RAM, which is the 128 KiB profile used by the default PRG32 v1.8 firmware for both QEMU and ESP32-C6.
+The Store rebuilds every cartridge from the manifest, icon, splash and colophon. Each rebuilt image is about 46.6 KB, within the 64 KiB slot (about 18.9 KB free). At run time the cartridge needs 96,884 bytes of executable RAM, which is the 128 KiB profile used by the default PRG32 v1.8 firmware for both QEMU and ESP32-C6.
 
 ## Rebuild, check, pack
 
@@ -43,16 +43,16 @@ The steps do the following:
 2. The first `make cartridge` builds both variants.
 3. `make qemu` checks that the bot reaches the ending on QEMU.
 4. `make preview` records `build/qemu-preview/preview.mp4`. Copy it to `assets/store/` when it should replace the current one.
-5. `make_store_art.py` regenerates the icon and screenshot from `build/qemu-preview`.
+5. `make_store_art.py` regenerates the icon, and the screenshot from a QEMU frame (by default the preview's 30 s frame, saved as `build/qemu-preview/store_frame.png`).
 6. The final command re-attaches the art, then packs and validates the bundle.
 
 Expected output from the last command:
 
 ```text
-preview  preview.mp4                        963862 bytes OK [store-ingest]
-esp32c6  pompeii-esp32c6.prg32               19134 bytes (+46402 free) OK [store-ingest]
-qemu     pompeii-qemu.prg32                  19132 bytes (+46404 free) OK [store-ingest]
-pompeii-1.0.0-store.zip: READY for submission (store-ingest)
+preview  preview.mp4                        4600000 bytes OK [store-ingest]
+esp32c6  pompeii-esp32c6.prg32               46594 bytes (+18942 free) OK [store-ingest]
+qemu     pompeii-qemu.prg32                  46592 bytes (+18944 free) OK [store-ingest]
+pompeii-2.0.0-store.zip: READY for submission (store-ingest)
 ```
 
 The ZIP timestamps are pinned to `updated_at`, so the bundle is byte-reproducible.
@@ -73,7 +73,7 @@ The ZIP timestamps are pinned to `updated_at`, so the bundle is byte-reproducibl
 No script in this repository contacts a Store, and no credentials are stored here. A maintainer with a Store account creates a personal Bearer token in the Store (`/auth/tokens`). They then submit the bundle from the PRG32 checkout:
 
 ```sh
-python3 -m prg32 store publish-bundle ../Pompeii-The-Last-Song-of-Vesuvius/dist/pompeii-1.0.0-store.zip --store-url https://store.prg32.uniparthenope.it/ --token "$PRG32_STORE_TOKEN"
+python3 -m prg32 store publish-bundle ../Pompeii-The-Last-Song-of-Vesuvius/dist/pompeii-2.0.0-store.zip --store-url https://store.prg32.uniparthenope.it/ --token "$PRG32_STORE_TOKEN"
 ```
 
 The Store replies `{"status": "pending", "review_required": true, ...}`. The cartridge appears in the catalog only after an editor approves the submission.

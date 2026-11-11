@@ -1,24 +1,30 @@
 # Pompeii: The Last Song of Vesuvius
 
 ## Historical fantasy premise
-Pompeii, AD 79. Livia, an apprentice maker of musical instruments, searches for her missing father while tremors unsettle the city. He studied underground resonance and feared an approaching catastrophe. A fictional Sibylline society mistakes the rumblings for a divine message. Livia uses a double-pipe **tibia** (the Roman form of the aulos) to open resonant mechanisms, reveal inscriptions, and organize an evacuation. She cannot prevent the eruption.
+Pompeii, AD 79. Livia is an apprentice maker of musical instruments. Tremors shake the city while a fictional Sibylline society mistakes the rumbling for a divine message. Livia carries a double-pipe **tibia** (the Roman form of the aulos). The Sibyl's song played on it moves the society's resonant stone mechanisms. She cannot prevent the eruption. She can only get people out.
 
-## Four game areas
-1. **Forum**: shops, streets, tremors, bronze keys.
-2. **House of the Painted Garden**: wealthy villa, painted warnings, locked passage, first rescued citizen.
-3. **Waterworks of the Sibyl**: aqueduct passages, double-pipe altar; three pulses unlock the final route.
-4. **Road to the Sea**: ash falls; escort survivors through the final arch.
+## Four districts
+Each district is a real-time 3D space of 16 x 20 cells. Its palette darkens as the eruption advances.
 
-## Mechanics and current implementation
-The playable four-room prototype uses the existing movement and combat system. Bronze keys open gates. The 4 citizen tokens (one per area) represent rescue records; all four areas contain one token, and the final exit requires all four plus three notes. The three tibia notes are triggered at the altar. Ash darkens the top of the screen as the frame count increases. Original palettes and sprites evoke limestone, terracotta, and ash. No actual historical characters are portrayed.
+1. **The Forum**: colonnades, a bronze statue on its base, a mosaic and market stalls under a clear sky. Two looters take advantage of the panic. Marcus is free to go. A bronze key opens the gate to the north.
+2. **The Painted Villa**: a garden, an atrium with its impluvium and mosaic rooms. Fallen masonry has trapped Flavia, so Livia must break it with her staff. A second key opens the next gate.
+3. **The Waterworks**: channels, bridges and the Sibyl's island altar. Reading the altar raises the tibia, and its inscription teaches a six-note song: UP LEFT RIGHT UP LEFT RIGHT. Felix is walled in.
+4. **The Road to the Sea**: tombs, lapilli falling from the plume, and Tullia trapped in a collapsed tomb. A Sibyl's stone seal blocks the road; it sinks only for the song. The pier and the boats lie beyond.
+
+With all four citizens saved, walking onto the pier starts the ending. The boats pull away, and the camera turns from the sea to the mountain.
+
+## Mechanics
+- **Third-person camera** behind Livia. It swings to follow her heading, pulls in and rises near walls, and orbits the city on the title screen.
+- **Focus (L)** locks on to the nearest looter, or to an object when no looter is close. Letterbox bars and a gold marker show the lock. The D-pad then moves relative to the target, so Livia circles and backs off without turning away. With nothing in range, L recenters the camera.
+- **Strike (A)** has a short wind-up and reach. Looters stagger when hit, fall after three or four strikes, and sometimes leave a terracotta amphora that restores health.
+- **Roll (R)** is a quick dodge with a brief invulnerability window. It is the answer to a looter's raised club and to the shadows of falling lapilli.
+- **Context action (B)** does what the HUD prompt says: rescue, read, check or talk.
+- **Tibia (C)** raises the instrument. The D-pad and A play five notes, and B lowers it. A song is recognised from the last six notes, so a wrong note simply has to be followed by the full song.
+- **Health**: three amphorae of two halves. Defeat keeps all progress and returns Livia to the district entrance.
+- **Persistence**: keys, opened gates, broken rubble, defeated looters, rescues and the sunken seal stay as left across districts. They reset only with a new game.
+
+## Inspiration and originality
+The structure and feel are inspired by the third-person 3D action-adventures of the late 1990s: target focus, context button, dodge roll and an instrument that plays songs. Every character, place, model, melody, piece of text and interface element is original. No names, music, symbols or assets of any existing game are used.
 
 ## Historical / IP note
-Edward Bulwer-Lytton's 1834 novel *The Last Days of Pompeii* is public domain. This game does not adapt its characters, dialogue, or specific plot, nor any Zelda characters, tunes, symbols, or assets. The tibia is an attested ancient Roman instrument; its magic is fictional. Eruption chronology is deliberately not pinned to a disputed calendar date.
-
-## Future work
-Add readable in-game narrative screens, four rescue objectives, a final evacuation ending, Roman NPC sprites, original double-reed-inspired audio synthesis, ash effects and a historical note.
-
-## Milestone 8: Narrative interaction
-
-*(Superseded controls: ACTION moved from C to **B** in Milestone 9; see README.)*
-The four rescue tokens are now citizens. Face each person and press C (ACTION) to escort them to safety. On the Sibylline altar, press C, then play UP, LEFT, RIGHT as separate presses. The rescue finale requires four citizens and the completed melody. Area labels, short dialogue, and a readable ending are rendered with a tiny embedded 3x5 bitmap font.
+Edward Bulwer-Lytton's 1834 novel *The Last Days of Pompeii* is public domain. This game does not adapt its characters, dialogue or plot. The tibia is an attested ancient Roman instrument; its magic is fictional. Eruption chronology is deliberately not pinned to a disputed calendar date.

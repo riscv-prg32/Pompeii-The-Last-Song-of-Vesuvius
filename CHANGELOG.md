@@ -1,3 +1,39 @@
+# Changelog
+
+## 2.0.0, 2026-11-11: the 3D remake
+
+The game is rebuilt as a third-person 3D action-adventure in the spirit of the late 1990s. The setting, the four districts, the four citizens, the tibia and the historical outcome are unchanged. Every model, map, melody and line of text is original.
+
+- **Fixed-point 3D renderer** (`src/r3d.c`, `src/render.c`):
+  - camera with yaw and pitch, five-plane frustum clipping, subpixel convex fill, painter's ordering;
+  - floor casting with per-material textures and distance fog;
+  - a sky gradient with Vesuvius and its growing plume placed by azimuth;
+  - extruded walls, columns, statue bases and tombs;
+  - animated low-poly Livia, looters, citizens, rubble, altar, seal, gates, boat and pickups, with blob shadows.
+- **Frame and palette:** the scene renders at native 320x200, with the HUD on a 2x2-pixel grid, and uses a 256-colour palette (`material*16 + light*4 + fog`) that darkens district by district.
+- **New districts** (`src/world.c`): 16x20-cell 3D maps of the Forum (colonnades, statue, mosaic), the Painted Villa (garden, impluvium atrium, mosaic rooms), the Waterworks (channels, bridges, the Sibyl's island) and the Road to the Sea (tombs, seal, pier).
+- **New play:**
+  - camera-relative movement with a follow camera that pulls in and rises near walls;
+  - **L** focus with letterbox bars and a target marker, plus circle-strafing;
+  - **R** dodge roll with invulnerability frames;
+  - **B** context action with an on-screen prompt;
+  - **C** raises the tibia, which plays five notes;
+  - a six-note Sibyl's song learned at the altar and played to sink the seal;
+  - looters that chase, wind up, swing, stagger and fall;
+  - health in amphora halves with pickups;
+  - lapilli with growing shadows on the coast road;
+  - a dialogue box with typewriter text and speaker names;
+  - district banners, an orbiting title camera and a pier ending that turns to the mountain.
+- **Controller contract change:** C, L and R are now used (tibia, focus, roll). AGENTS.md, the README, the colophon and `tools/control_test.c` were updated together.
+- **Audio:** new title, exploration, defeat and ending themes. Every game event now has a multi-note phrase. Tibia notes have their own sustained channel (D4 F4 A4 D5 C5), and the music rests while the tibia is raised.
+- **Presenter:** it keeps one hash per row instead of a 4-bit shadow of the frame, and resends only changed rows as runs. It is invalidated on palette changes and resyncs every 300 frames.
+- **Memory:** RAM use fell from 108,484 to 96,884 bytes, even though the frame is now 256-colour.
+- **Bot:** `tools/autoplay.py` rewritten. It parses the maps, plans with BFS and steers relative to the camera, using focus and strike, the tibia song and the pier. The QEMU harness holds directions and sends C/L/R.
+- **Tests:** all host tests rewritten for the new mechanics. They add a 20,000-frame random-input smoke run and a renderer bounds check from many camera positions in every district.
+- **Cartridge without libc:** `memmove` was added to the shim, and `memcpy` is defined in the cartridge bridge.
+- QEMU at 320x200: boot in 10.6 s, 30.3 updates/s, title to ending in 143.6 s (559 bot inputs) with no faults. The 60 s `assets/store/preview.mp4` was re-recorded from QEMU with its audio.
+- ESP32-C6 hardware execution, including its 3D frame rate, remains unverified.
+
 ## Milestone 11 — District art and eruption
 
 - Added distinct procedural architectural treatments for all four districts.
@@ -6,8 +42,6 @@
 - Added deterministic eruption regression test and refreshed renderer screenshots.
 - Rebuilt portable PRG32 cartridge: 13,528 bytes (10.3% of 128 KiB).
 - Firmware/QEMU runtime execution remains unverified.
-
-# Changelog
 
 ## 1.0.0 (Milestone 14), 2026-11-11: tested on PRG32 QEMU, Store release
 
